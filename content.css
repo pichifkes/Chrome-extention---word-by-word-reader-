@@ -24,6 +24,8 @@
   --sre-accent-hover: #C2502F;
   --sre-shadow:       0 1px 3px rgba(0,0,0,0.05), 0 4px 12px rgba(0,0,0,0.08);
   --sre-radius:       14px;
+  --sre-link:         #2563EB;
+  --sre-link-orp:     #1D4ED8;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -43,6 +45,8 @@
     --sre-accent-soft:  #38251F;
     --sre-accent-hover: #EF8F6E;
     --sre-shadow:       0 4px 6px rgba(0,0,0,0.25), 0 10px 24px rgba(0,0,0,0.35);
+    --sre-link:         #60A5FA;
+    --sre-link-orp:     #93C5FD;
   }
 }
 
@@ -142,6 +146,15 @@
 }
 
 #sre-word-after { color: var(--sre-ink); }
+
+/* Link words appear in blue so readers can recognise hyperlink text. */
+#sre-word-display.sre-is-link #sre-word-before,
+#sre-word-display.sre-is-link #sre-word-after {
+  color: var(--sre-link);
+}
+#sre-word-display.sre-is-link #sre-word-orp {
+  color: var(--sre-link-orp);
+}
 
 /* ── Progress bar ─────────────────────────────────────────────── */
 #sre-progress-track {

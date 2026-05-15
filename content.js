@@ -1,5 +1,4 @@
 // content.js — SwiftRead Enhanced
-// RSVP speed reader with adaptive pacing for long/hyphenated words, code blocks, and tables
 
 (function () {
   'use strict';
@@ -12,13 +11,12 @@
   // ================================================================
 
   const DEFAULTS = {
-    cpm: 800,
-    font: 'system-ui',
-    longWordThreshold: 8,
-    longWordMultiplier: 1.5,
+    wpm:              250,   // words per minute (base speed)
+    charPenaltyFactor: 0.1,  // extra time per char above 5, as fraction of base word time
+    font:             'system-ui',
     hyphenMultiplier: 1.8,
-    minDurationMs: 80,
-    maxDurationMs: 2000,
+    minDurationMs:    80,
+    maxDurationMs:    2000,
   };
 
   let cfg = { ...DEFAULTS };
@@ -41,27 +39,27 @@
   // TOKEN BUILDING
   // ================================================================
 
-  // Strip these from the start/end of a token before calculating the ORP,
-  // so the focal letter is always an actual character, not a bracket or quote.
   const LEADING_PUNCT  = /^[(\[{"'«‹"'`]+/;
   const TRAILING_PUNCT = /[)\]}"'»›"'`.,;:!?…]+$/;
 
+  // Duration in ms for one word.
+  // Base = 60 000 / wpm. Each character above 5 adds charPenaltyFactor × base.
   function wordDuration(word) {
-    const effectiveLen = Math.max(1, word.replace(/[^a-zA-Z0-9]/g, '').length);
-    const baseMs = (effectiveLen / cfg.cpm) * 60_000;
-    let multiplier = 1;
-    const stripped = word.replace(/^[^a-zA-Z0-9]+|[^a-zA-Z0-9]+$/g, '');
-    if (stripped.length > cfg.longWordThreshold) multiplier *= cfg.longWordMultiplier;
-    if (word.includes('-') && word.replace(/-/g, '').length > 3) multiplier *= cfg.hyphenMultiplier;
-    return Math.min(Math.max(baseMs * multiplier, cfg.minDurationMs), cfg.maxDurationMs);
+    const base       = 60_000 / cfg.wpm;
+    const chars      = word.replace(/[^a-zA-Z0-9]/g, '').length;
+    const extraChars = Math.max(0, chars - 5);
+    let   duration   = base + extraChars * base * cfg.charPenaltyFactor;
+    if (word.includes('-') && word.replace(/-/g, '').length > 3) {
+      duration *= cfg.hyphenMultiplier;
+    }
+    return Math.min(Math.max(duration, cfg.minDurationMs), cfg.maxDurationMs);
   }
 
-  function makeWordToken(word) {
-    // Separate punctuation wrapper from core so ORP lands on a real letter.
-    const lead  = word.match(LEADING_PUNCT)?.[0]  ?? '';
-    const trail = word.match(TRAILING_PUNCT)?.[0] ?? '';
-    const core  = word.slice(lead.length, word.length - trail.length);
-    // If stripping leaves nothing (e.g. "---"), treat the whole token as core.
+  function makeWordToken(word, isLink = false) {
+    // Separate punctuation from core so the ORP lands on a real letter.
+    const lead   = word.match(LEADING_PUNCT)?.[0]  ?? '';
+    const trail  = word.match(TRAILING_PUNCT)?.[0] ?? '';
+    const core   = word.slice(lead.length, word.length - trail.length);
     const target = core.length > 0 ? core : word;
     const i = Math.max(0, Math.min(Math.floor(target.length * 0.35), target.length - 1));
     return {
@@ -71,6 +69,7 @@
       orp:      target[i] ?? target[0] ?? word[0],
       after:    target.slice(i + 1) + trail,
       duration: wordDuration(word),
+      isLink,
     };
   }
 
@@ -80,7 +79,6 @@
 
   function makeTableToken(node) {
     const clone = node.cloneNode(true);
-    // Remove scripts and strip inline event handlers for safety.
     clone.querySelectorAll('script, style').forEach(el => el.remove());
     clone.querySelectorAll('*').forEach(el => {
       [...el.attributes].forEach(attr => {
@@ -100,11 +98,13 @@
     'NAV', 'FOOTER', 'HEADER', 'ASIDE',
   ]);
 
-  function extractTokens(node, tokens = [], inPre = false) {
+  // inLink propagates down through <a> subtrees so every word inside a link
+  // gets the isLink flag and will be rendered in the link colour.
+  function extractTokens(node, tokens = [], inPre = false, inLink = false) {
     if (node.nodeType === Node.TEXT_NODE) {
       if (inPre) return tokens;
       const words = node.textContent.split(/\s+/).filter(w => w.length > 0);
-      words.forEach(w => tokens.push(makeWordToken(w)));
+      words.forEach(w => tokens.push(makeWordToken(w, inLink)));
       return tokens;
     }
 
@@ -113,34 +113,32 @@
     const tag = node.tagName;
     if (SKIP_TAGS.has(tag)) return tokens;
 
-    // <pre> → single code block token
     if (tag === 'PRE') {
       const text = node.textContent.trim();
       if (text) tokens.push(makeCodeToken(text));
       return tokens;
     }
 
-    // <table> → pause and show entire table until user continues
     if (tag === 'TABLE') {
       tokens.push(makeTableToken(node));
       return tokens;
     }
 
-    // <ol> → inject the item number before each <li>
     if (tag === 'OL') {
       let n = parseInt(node.getAttribute('start') ?? '1', 10);
       for (const child of node.childNodes) {
         if (child.nodeType === Node.ELEMENT_NODE && child.tagName === 'LI') {
-          tokens.push(makeWordToken(`${n}.`));
+          tokens.push(makeWordToken(`${n}.`, inLink));
           n++;
         }
-        extractTokens(child, tokens, false);
+        extractTokens(child, tokens, false, inLink);
       }
       return tokens;
     }
 
+    const nextLink = inLink || tag === 'A';
     for (const child of node.childNodes) {
-      extractTokens(child, tokens, false);
+      extractTokens(child, tokens, false, nextLink);
     }
     return tokens;
   }
@@ -158,9 +156,7 @@
     return document.body;
   }
 
-  function tokensFromPage() {
-    return extractTokens(findMainContent());
-  }
+  function tokensFromPage()      { return extractTokens(findMainContent()); }
 
   function tokensFromSelection() {
     const sel = window.getSelection();
@@ -179,10 +175,10 @@
 
   const state = {
     tokens: [],
-    index: 0,           // index of NEXT token to display
+    index: 0,              // index of NEXT token to display
     playing: false,
     timer: null,
-    waitingForBlock: false,  // true while paused on a code or table block
+    waitingForBlock: false,
   };
 
   // ================================================================
@@ -227,12 +223,12 @@
         <!-- ── Controls ── -->
         <div id="sre-controls">
           <button class="sre-btn" id="sre-prev"      title="Back (←)">⏮</button>
-          <button class="sre-btn" id="sre-playpause" title="Play/Pause (Space)">▶</button>
+          <button class="sre-btn" id="sre-playpause" title="Play (Space)">▶</button>
           <button class="sre-btn" id="sre-next"      title="Forward (→)">⏭</button>
 
           <div id="sre-speed-wrap">
-            <span id="sre-speed-label">800 CPM</span>
-            <input type="range" id="sre-speed-input" min="100" max="3000" step="50" value="800">
+            <span id="sre-speed-label">250 WPM</span>
+            <input type="range" id="sre-speed-input" min="50" max="800" step="25" value="250">
           </div>
 
           <select id="sre-font-select" title="Display font"></select>
@@ -252,12 +248,12 @@
     overlay.querySelector('#sre-table-continue').addEventListener('click', onBlockContinue);
 
     const speedInput = overlay.querySelector('#sre-speed-input');
-    speedInput.value = cfg.cpm;
-    overlay.querySelector('#sre-speed-label').textContent = `${cfg.cpm} CPM`;
+    speedInput.value = cfg.wpm;
+    overlay.querySelector('#sre-speed-label').textContent = `${cfg.wpm} WPM`;
     speedInput.addEventListener('input', e => {
-      cfg.cpm = parseInt(e.target.value, 10);
-      overlay.querySelector('#sre-speed-label').textContent = `${cfg.cpm} CPM`;
-      saveSettings({ cpm: cfg.cpm });
+      cfg.wpm = parseInt(e.target.value, 10);
+      overlay.querySelector('#sre-speed-label').textContent = `${cfg.wpm} WPM`;
+      saveSettings({ wpm: cfg.wpm });
     });
 
     overlay.addEventListener('click', e => {
@@ -274,13 +270,10 @@
   // ================================================================
 
   const COMMON_FONTS = [
-    'system-ui',
-    'Arial', 'Arial Narrow',
-    'Georgia', 'Garamond', 'Palatino Linotype',
-    'Times New Roman',
+    'system-ui', 'Arial', 'Arial Narrow',
+    'Georgia', 'Garamond', 'Palatino Linotype', 'Times New Roman',
     'Courier New', 'Lucida Console', 'Consolas',
-    'Verdana', 'Trebuchet MS', 'Tahoma',
-    'Impact', 'Comic Sans MS',
+    'Verdana', 'Trebuchet MS', 'Tahoma', 'Impact', 'Comic Sans MS',
   ];
 
   async function populateFontSelector() {
@@ -293,7 +286,6 @@
         fonts = ['system-ui', ...families];
       }
     } catch (_) {}
-
     fonts.forEach(family => {
       const opt = document.createElement('option');
       opt.value = family;
@@ -350,6 +342,9 @@
     overlay.querySelector('#sre-word-orp').textContent    = token.orp;
     overlay.querySelector('#sre-word-after').textContent  = token.after;
 
+    // Colour link words differently so readers can recognise hyperlink text.
+    overlay.querySelector('#sre-word-display').classList.toggle('sre-is-link', !!token.isLink);
+
     const pct = state.tokens.length > 1
       ? ((state.index - 1) / (state.tokens.length - 1)) * 100
       : 100;
@@ -369,7 +364,6 @@
     renderToken(token);
 
     if (state.waitingForBlock) return;
-
     state.timer = setTimeout(tick, token.type === 'word' ? token.duration : 0);
   }
 
@@ -385,15 +379,10 @@
     createOverlay();
     overlay.style.display = 'flex';
 
+    // Show the first word, then wait for the user to press ▶ or Space.
     const first = state.tokens[0];
     state.index = 1;
     renderToken(first);
-
-    if (!state.waitingForBlock) {
-      state.playing = true;
-      state.timer = setTimeout(tick, first.duration ?? 300);
-    }
-
     updatePlayPauseBtn();
   }
 
@@ -424,8 +413,8 @@
     clearTimeout(state.timer);
     const current = state.index - 1;
     const target  = Math.max(0, Math.min(state.tokens.length - 1, current + delta));
-    state.index = target + 1;
-    const token = state.tokens[target];
+    state.index   = target + 1;
+    const token   = state.tokens[target];
 
     if (token.type !== 'code' && token.type !== 'table') {
       state.waitingForBlock = false;
@@ -438,7 +427,6 @@
     }
   }
 
-  // Dismiss a code or table block and resume reading.
   function onBlockContinue() {
     state.waitingForBlock = false;
     showView('word');
@@ -456,44 +444,33 @@
     if (btn) btn.textContent = state.playing ? '⏸' : '▶';
   }
 
-  // Nudge CPM up or down and sync the in-reader slider immediately.
-  function adjustCPM(delta) {
-    cfg.cpm = Math.min(3000, Math.max(100, cfg.cpm + delta));
-    saveSettings({ cpm: cfg.cpm });
+  // Adjust WPM by delta and sync the in-reader slider label immediately.
+  function adjustWPM(delta) {
+    cfg.wpm = Math.min(800, Math.max(50, cfg.wpm + delta));
+    saveSettings({ wpm: cfg.wpm });
     const speedInput = overlay?.querySelector('#sre-speed-input');
     const speedLabel = overlay?.querySelector('#sre-speed-label');
-    if (speedInput) speedInput.value = cfg.cpm;
-    if (speedLabel) speedLabel.textContent = `${cfg.cpm} CPM`;
+    if (speedInput) speedInput.value = cfg.wpm;
+    if (speedLabel) speedLabel.textContent = `${cfg.wpm} WPM`;
   }
 
   function handleKeydown(e) {
     if (!overlay || overlay.style.display === 'none') return;
     switch (e.key) {
       case 'Escape':
-        e.preventDefault();
-        closeReader();
-        break;
+        e.preventDefault(); closeReader(); break;
       case ' ':
         e.preventDefault();
-        // On a code/table block, Space dismisses it; otherwise play/pause.
         if (state.waitingForBlock) { onBlockContinue(); } else { togglePlay(); }
         break;
       case 'ArrowRight':
-        e.preventDefault();
-        seekBy(+1);
-        break;
+        e.preventDefault(); seekBy(+1);      break;
       case 'ArrowLeft':
-        e.preventDefault();
-        seekBy(-1);
-        break;
+        e.preventDefault(); seekBy(-1);      break;
       case 'ArrowUp':
-        e.preventDefault();
-        adjustCPM(+50);
-        break;
+        e.preventDefault(); adjustWPM(+25); break;
       case 'ArrowDown':
-        e.preventDefault();
-        adjustCPM(-50);
-        break;
+        e.preventDefault(); adjustWPM(-25); break;
     }
   }
 
@@ -531,7 +508,6 @@
       const sel = window.getSelection();
       if (sel && !sel.isCollapsed && sel.toString().trim().length > 3) {
         const rect = sel.getRangeAt(0).getBoundingClientRect();
-        // Viewport coordinates — button uses position:fixed.
         showSelectionButton(rect.right, rect.bottom + 10);
       } else {
         hideSelectionButton();
@@ -545,11 +521,9 @@
   });
 
   // ================================================================
-  // MESSAGE LISTENER (from background.js / popup.js)
+  // MESSAGE LISTENER
   // ================================================================
 
-  // Synchronous listener — Chrome closes the channel immediately (no "message
-  // port closed" errors). Work runs inside the .then() callbacks.
   chrome.runtime.onMessage.addListener((message) => {
     if (message.action === 'readSelection') {
       loadSettings().then(() => {
