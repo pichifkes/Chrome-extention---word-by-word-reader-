@@ -1,5 +1,5 @@
 // content.js — SwiftRead Enhanced
-// RSVP speed reader with adaptive pacing for long/hyphenated words and code blocks
+// RSVP speed reader with adaptive pacing for long/hyphenated words, code blocks, and tables
 
 (function () {
   'use strict';
@@ -12,13 +12,13 @@
   // ================================================================
 
   const DEFAULTS = {
-    cpm: 800,                  // characters per minute (base speed)
-    font: 'system-ui',         // display font
-    longWordThreshold: 8,      // chars — words longer than this slow down
-    longWordMultiplier: 1.5,   // duration multiplier for long words
-    hyphenMultiplier: 1.8,     // extra multiplier for hyphenated words
-    minDurationMs: 80,         // fastest a word can be shown
-    maxDurationMs: 2000,       // slowest a word can be shown
+    cpm: 800,
+    font: 'system-ui',
+    longWordThreshold: 8,
+    longWordMultiplier: 1.5,
+    hyphenMultiplier: 1.8,
+    minDurationMs: 80,
+    maxDurationMs: 2000,
   };
 
   let cfg = { ...DEFAULTS };
@@ -41,43 +41,53 @@
   // TOKEN BUILDING
   // ================================================================
 
-  /** Index of the Optimal Recognition Point (~35% into the word). */
-  function orpIndex(word) {
-    return Math.max(0, Math.min(Math.floor(word.length * 0.35), word.length - 1));
-  }
+  // Strip these from the start/end of a token before calculating the ORP,
+  // so the focal letter is always an actual character, not a bracket or quote.
+  const LEADING_PUNCT  = /^[(\[{"'«‹"'`]+/;
+  const TRAILING_PUNCT = /[)\]}"'»›"'`.,;:!?…]+$/;
 
-  /**
-   * Calculate how long to display a word (ms) based on CPM.
-   * Long words and hyphenated compounds get a multiplier.
-   */
   function wordDuration(word) {
-    // Use only alphanumeric length for the base CPM calculation
     const effectiveLen = Math.max(1, word.replace(/[^a-zA-Z0-9]/g, '').length);
     const baseMs = (effectiveLen / cfg.cpm) * 60_000;
-
     let multiplier = 1;
     const stripped = word.replace(/^[^a-zA-Z0-9]+|[^a-zA-Z0-9]+$/g, '');
     if (stripped.length > cfg.longWordThreshold) multiplier *= cfg.longWordMultiplier;
-    // Hyphenated compounds: e.g. "state-of-the-art", "well-known"
     if (word.includes('-') && word.replace(/-/g, '').length > 3) multiplier *= cfg.hyphenMultiplier;
-
     return Math.min(Math.max(baseMs * multiplier, cfg.minDurationMs), cfg.maxDurationMs);
   }
 
   function makeWordToken(word) {
-    const i = orpIndex(word);
+    // Separate punctuation wrapper from core so ORP lands on a real letter.
+    const lead  = word.match(LEADING_PUNCT)?.[0]  ?? '';
+    const trail = word.match(TRAILING_PUNCT)?.[0] ?? '';
+    const core  = word.slice(lead.length, word.length - trail.length);
+    // If stripping leaves nothing (e.g. "---"), treat the whole token as core.
+    const target = core.length > 0 ? core : word;
+    const i = Math.max(0, Math.min(Math.floor(target.length * 0.35), target.length - 1));
     return {
-      type: 'word',
-      text: word,
-      before: word.slice(0, i),
-      orp:    word[i] ?? word[0],
-      after:  word.slice(i + 1),
+      type:     'word',
+      text:     word,
+      before:   lead + target.slice(0, i),
+      orp:      target[i] ?? target[0] ?? word[0],
+      after:    target.slice(i + 1) + trail,
       duration: wordDuration(word),
     };
   }
 
   function makeCodeToken(text) {
     return { type: 'code', text: text.trim() };
+  }
+
+  function makeTableToken(node) {
+    const clone = node.cloneNode(true);
+    // Remove scripts and strip inline event handlers for safety.
+    clone.querySelectorAll('script, style').forEach(el => el.remove());
+    clone.querySelectorAll('*').forEach(el => {
+      [...el.attributes].forEach(attr => {
+        if (attr.name.startsWith('on')) el.removeAttribute(attr.name);
+      });
+    });
+    return { type: 'table', html: clone.outerHTML };
   }
 
   // ================================================================
@@ -90,20 +100,10 @@
     'NAV', 'FOOTER', 'HEADER', 'ASIDE',
   ]);
 
-  const CODE_BLOCK_TAGS = new Set(['PRE']);   // treated as a single code token
-  const INLINE_CODE_TAGS = new Set(['CODE', 'KBD', 'SAMP', 'TT']); // treated as words
-
-  /**
-   * Recursively walk a DOM subtree and build a flat token array.
-   * @param {Node} node
-   * @param {Array} tokens   accumulator
-   * @param {boolean} inPre  are we already inside a <pre>?
-   */
   function extractTokens(node, tokens = [], inPre = false) {
     if (node.nodeType === Node.TEXT_NODE) {
-      if (inPre) return tokens; // handled by the PRE element handler
-      const text = node.textContent;
-      const words = text.split(/\s+/).filter(w => w.length > 0);
+      if (inPre) return tokens;
+      const words = node.textContent.split(/\s+/).filter(w => w.length > 0);
       words.forEach(w => tokens.push(makeWordToken(w)));
       return tokens;
     }
@@ -113,10 +113,29 @@
     const tag = node.tagName;
     if (SKIP_TAGS.has(tag)) return tokens;
 
-    // Whole <pre> block becomes one code token (includes nested <code>)
-    if (CODE_BLOCK_TAGS.has(tag)) {
+    // <pre> → single code block token
+    if (tag === 'PRE') {
       const text = node.textContent.trim();
       if (text) tokens.push(makeCodeToken(text));
+      return tokens;
+    }
+
+    // <table> → pause and show entire table until user continues
+    if (tag === 'TABLE') {
+      tokens.push(makeTableToken(node));
+      return tokens;
+    }
+
+    // <ol> → inject the item number before each <li>
+    if (tag === 'OL') {
+      let n = parseInt(node.getAttribute('start') ?? '1', 10);
+      for (const child of node.childNodes) {
+        if (child.nodeType === Node.ELEMENT_NODE && child.tagName === 'LI') {
+          tokens.push(makeWordToken(`${n}.`));
+          n++;
+        }
+        extractTokens(child, tokens, false);
+      }
       return tokens;
     }
 
@@ -126,7 +145,6 @@
     return tokens;
   }
 
-  /** Find the most-likely main content element on the page. */
   function findMainContent() {
     const selectors = [
       'main', '[role="main"]', 'article',
@@ -147,8 +165,7 @@
   function tokensFromSelection() {
     const sel = window.getSelection();
     if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return [];
-    const range = sel.getRangeAt(0);
-    const frag = range.cloneContents();
+    const frag = sel.getRangeAt(0).cloneContents();
     const wrapper = document.createElement('div');
     wrapper.appendChild(frag);
     return extractTokens(wrapper);
@@ -162,10 +179,10 @@
 
   const state = {
     tokens: [],
-    index: 0,       // index of NEXT token to display
+    index: 0,           // index of NEXT token to display
     playing: false,
     timer: null,
-    waitingForCode: false,
+    waitingForBlock: false,  // true while paused on a code or table block
   };
 
   // ================================================================
@@ -200,6 +217,13 @@
           <button id="sre-code-continue">Continue Reading →</button>
         </div>
 
+        <!-- ── Table view ── -->
+        <div id="sre-table-view" hidden>
+          <div id="sre-table-label">⊞ Table</div>
+          <div id="sre-table-content"></div>
+          <button id="sre-table-continue">Continue Reading →</button>
+        </div>
+
         <!-- ── Controls ── -->
         <div id="sre-controls">
           <button class="sre-btn" id="sre-prev"      title="Back (←)">⏮</button>
@@ -220,14 +244,13 @@
 
     document.body.appendChild(overlay);
 
-    // ── Events ──────────────────────────────────────────────────
     overlay.querySelector('#sre-playpause').addEventListener('click', togglePlay);
     overlay.querySelector('#sre-prev').addEventListener('click', () => seekBy(-1));
     overlay.querySelector('#sre-next').addEventListener('click', () => seekBy(+1));
     overlay.querySelector('#sre-close').addEventListener('click', closeReader);
-    overlay.querySelector('#sre-code-continue').addEventListener('click', onCodeContinue);
+    overlay.querySelector('#sre-code-continue').addEventListener('click', onBlockContinue);
+    overlay.querySelector('#sre-table-continue').addEventListener('click', onBlockContinue);
 
-    // Speed slider
     const speedInput = overlay.querySelector('#sre-speed-input');
     speedInput.value = cfg.cpm;
     overlay.querySelector('#sre-speed-label').textContent = `${cfg.cpm} CPM`;
@@ -237,14 +260,12 @@
       saveSettings({ cpm: cfg.cpm });
     });
 
-    // Click backdrop to close
     overlay.addEventListener('click', e => {
       if (e.target === overlay) closeReader();
     });
 
     document.addEventListener('keydown', handleKeydown);
 
-    // Populate font list (async — fires after overlay is shown)
     populateFontSelector();
   }
 
@@ -265,16 +286,13 @@
   async function populateFontSelector() {
     const select = overlay.querySelector('#sre-font-select');
     let fonts = COMMON_FONTS;
-
     try {
       if ('queryLocalFonts' in window) {
         const localFonts = await window.queryLocalFonts();
         const families = [...new Set(localFonts.map(f => f.family))].sort();
         fonts = ['system-ui', ...families];
       }
-    } catch (_) {
-      // Permission denied or API unavailable — fall back to common list
-    }
+    } catch (_) {}
 
     fonts.forEach(family => {
       const opt = document.createElement('option');
@@ -284,9 +302,7 @@
       if (family === cfg.font) opt.selected = true;
       select.appendChild(opt);
     });
-
     applyFont(cfg.font);
-
     select.addEventListener('change', e => {
       const font = e.target.value;
       saveSettings({ font });
@@ -304,29 +320,36 @@
   // DISPLAY LOGIC
   // ================================================================
 
+  function showView(name) {
+    overlay.querySelector('#sre-word-view').hidden  = name !== 'word';
+    overlay.querySelector('#sre-code-view').hidden  = name !== 'code';
+    overlay.querySelector('#sre-table-view').hidden = name !== 'table';
+  }
+
   function renderToken(token) {
     if (!overlay) return;
 
-    const wordView = overlay.querySelector('#sre-word-view');
-    const codeView = overlay.querySelector('#sre-code-view');
-
     if (token.type === 'code') {
-      wordView.hidden = true;
-      codeView.hidden = false;
+      showView('code');
       overlay.querySelector('#sre-code-content').textContent = token.text;
-      // Pause and wait for user to click Continue
-      state.waitingForCode = true;
+      state.waitingForBlock = true;
       pauseReader();
       return;
     }
 
-    wordView.hidden = false;
-    codeView.hidden = true;
+    if (token.type === 'table') {
+      showView('table');
+      overlay.querySelector('#sre-table-content').innerHTML = token.html;
+      state.waitingForBlock = true;
+      pauseReader();
+      return;
+    }
+
+    showView('word');
     overlay.querySelector('#sre-word-before').textContent = token.before;
     overlay.querySelector('#sre-word-orp').textContent    = token.orp;
     overlay.querySelector('#sre-word-after').textContent  = token.after;
 
-    // Progress bar
     const pct = state.tokens.length > 1
       ? ((state.index - 1) / (state.tokens.length - 1)) * 100
       : 100;
@@ -338,20 +361,16 @@
   // ================================================================
 
   function tick() {
-    if (!state.playing || state.waitingForCode) return;
-    if (state.index >= state.tokens.length) {
-      stopReader();
-      return;
-    }
+    if (!state.playing || state.waitingForBlock) return;
+    if (state.index >= state.tokens.length) { stopReader(); return; }
 
     const token = state.tokens[state.index];
     state.index++;
     renderToken(token);
 
-    if (state.waitingForCode) return; // renderToken paused us
+    if (state.waitingForBlock) return;
 
-    const duration = token.type === 'word' ? token.duration : 0;
-    state.timer = setTimeout(tick, duration);
+    state.timer = setTimeout(tick, token.type === 'word' ? token.duration : 0);
   }
 
   function startReader(tokens) {
@@ -360,18 +379,17 @@
     state.tokens = tokens;
     state.index = 0;
     state.playing = false;
-    state.waitingForCode = false;
+    state.waitingForBlock = false;
     clearTimeout(state.timer);
 
     createOverlay();
     overlay.style.display = 'flex';
 
-    // Show first token immediately, then auto-play
     const first = state.tokens[0];
     state.index = 1;
     renderToken(first);
 
-    if (!state.waitingForCode) {
+    if (!state.waitingForBlock) {
       state.playing = true;
       state.timer = setTimeout(tick, first.duration ?? 300);
     }
@@ -380,11 +398,7 @@
   }
 
   function togglePlay() {
-    if (state.playing) {
-      pauseReader();
-    } else {
-      resumeReader();
-    }
+    if (state.playing) { pauseReader(); } else { resumeReader(); }
   }
 
   function pauseReader() {
@@ -394,7 +408,7 @@
   }
 
   function resumeReader() {
-    if (state.waitingForCode) return;
+    if (state.waitingForBlock) return;
     state.playing = true;
     updatePlayPauseBtn();
     tick();
@@ -408,35 +422,26 @@
 
   function seekBy(delta) {
     clearTimeout(state.timer);
-    // state.index is the NEXT token — currently displayed = index - 1
     const current = state.index - 1;
     const target  = Math.max(0, Math.min(state.tokens.length - 1, current + delta));
-
     state.index = target + 1;
     const token = state.tokens[target];
 
-    // Reset code-wait if we jumped away from a code block
-    if (token.type !== 'code') {
-      state.waitingForCode = false;
-      const wordView = overlay?.querySelector('#sre-word-view');
-      const codeView = overlay?.querySelector('#sre-code-view');
-      if (wordView) wordView.hidden = false;
-      if (codeView) codeView.hidden = true;
+    if (token.type !== 'code' && token.type !== 'table') {
+      state.waitingForBlock = false;
     }
 
     renderToken(token);
 
-    if (state.playing && !state.waitingForCode) {
+    if (state.playing && !state.waitingForBlock) {
       state.timer = setTimeout(tick, token.duration ?? 300);
     }
   }
 
-  function onCodeContinue() {
-    state.waitingForCode = false;
-    const wordView = overlay?.querySelector('#sre-word-view');
-    const codeView = overlay?.querySelector('#sre-code-view');
-    if (wordView) wordView.hidden = false;
-    if (codeView) codeView.hidden = true;
+  // Dismiss a code or table block and resume reading.
+  function onBlockContinue() {
+    state.waitingForBlock = false;
+    showView('word');
     resumeReader();
   }
 
@@ -451,15 +456,44 @@
     if (btn) btn.textContent = state.playing ? '⏸' : '▶';
   }
 
+  // Nudge CPM up or down and sync the in-reader slider immediately.
+  function adjustCPM(delta) {
+    cfg.cpm = Math.min(3000, Math.max(100, cfg.cpm + delta));
+    saveSettings({ cpm: cfg.cpm });
+    const speedInput = overlay?.querySelector('#sre-speed-input');
+    const speedLabel = overlay?.querySelector('#sre-speed-label');
+    if (speedInput) speedInput.value = cfg.cpm;
+    if (speedLabel) speedLabel.textContent = `${cfg.cpm} CPM`;
+  }
+
   function handleKeydown(e) {
     if (!overlay || overlay.style.display === 'none') return;
     switch (e.key) {
-      case 'Escape':     e.preventDefault(); closeReader();     break;
-      case ' ':          e.preventDefault(); togglePlay();      break;
-      case 'ArrowRight': e.preventDefault(); seekBy(+1);        break;
-      case 'ArrowLeft':  e.preventDefault(); seekBy(-1);        break;
-      case 'ArrowUp':    e.preventDefault(); seekBy(+10);       break;
-      case 'ArrowDown':  e.preventDefault(); seekBy(-10);       break;
+      case 'Escape':
+        e.preventDefault();
+        closeReader();
+        break;
+      case ' ':
+        e.preventDefault();
+        // On a code/table block, Space dismisses it; otherwise play/pause.
+        if (state.waitingForBlock) { onBlockContinue(); } else { togglePlay(); }
+        break;
+      case 'ArrowRight':
+        e.preventDefault();
+        seekBy(+1);
+        break;
+      case 'ArrowLeft':
+        e.preventDefault();
+        seekBy(-1);
+        break;
+      case 'ArrowUp':
+        e.preventDefault();
+        adjustCPM(+50);
+        break;
+      case 'ArrowDown':
+        e.preventDefault();
+        adjustCPM(-50);
+        break;
     }
   }
 
@@ -497,7 +531,7 @@
       const sel = window.getSelection();
       if (sel && !sel.isCollapsed && sel.toString().trim().length > 3) {
         const rect = sel.getRangeAt(0).getBoundingClientRect();
-        // Use viewport coordinates — button uses position:fixed in CSS.
+        // Viewport coordinates — button uses position:fixed.
         showSelectionButton(rect.right, rect.bottom + 10);
       } else {
         hideSelectionButton();
@@ -514,9 +548,8 @@
   // MESSAGE LISTENER (from background.js / popup.js)
   // ================================================================
 
-  // Synchronous listener — returning nothing (not true) tells Chrome the
-  // channel can be closed immediately, avoiding "message port closed" errors.
-  // The actual work runs inside loadSettings().then() which is fine.
+  // Synchronous listener — Chrome closes the channel immediately (no "message
+  // port closed" errors). Work runs inside the .then() callbacks.
   chrome.runtime.onMessage.addListener((message) => {
     if (message.action === 'readSelection') {
       loadSettings().then(() => {
@@ -531,7 +564,6 @@
     }
   });
 
-  // Eagerly load settings so they're ready when user clicks Read
   loadSettings();
 
 })();

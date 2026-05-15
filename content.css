@@ -314,6 +314,82 @@
 }
 
 /* ================================================================
+   TABLE VIEW
+   ================================================================ */
+
+#sre-table-view {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+#sre-table-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--sre-muted);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+#sre-table-content {
+  overflow: auto;
+  max-height: 300px;
+  border: 1px solid var(--sre-line);
+  border-radius: 10px;
+}
+
+#sre-table-content table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 13px;
+  color: var(--sre-ink);
+  font-family: system-ui, sans-serif;
+}
+
+#sre-table-content th,
+#sre-table-content td {
+  border: 1px solid var(--sre-line);
+  padding: 8px 14px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+#sre-table-content th {
+  background: var(--sre-panel-2);
+  font-weight: 600;
+  color: var(--sre-ink-soft);
+  position: sticky;
+  top: 0;
+}
+
+#sre-table-content tr:nth-child(even) td {
+  background: var(--sre-panel-2);
+}
+
+#sre-table-continue {
+  align-self: flex-end;
+  background: var(--sre-accent);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 10px 22px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.1s;
+  letter-spacing: 0.01em;
+}
+
+#sre-table-continue:hover {
+  background: var(--sre-accent-hover);
+  transform: translateY(-1px);
+}
+
+#sre-table-continue:active {
+  transform: translateY(0);
+}
+
+/* ================================================================
    FLOATING SELECTION BUTTON
    ================================================================ */
 
