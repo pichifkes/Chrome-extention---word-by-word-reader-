@@ -1,0 +1,349 @@
+/* ================================================================
+   SwiftRead Enhanced — Overlay Styles
+   All selectors are scoped to #sre-* to avoid page conflicts.
+   Colors follow the provided design system (light + dark via
+   prefers-color-scheme).
+   ================================================================ */
+
+/* ── Design tokens (scoped so they don't leak to the page) ──────── */
+#sre-overlay,
+#sre-sel-btn {
+  /* Light mode */
+  --sre-bg:           #F8F8F8;
+  --sre-panel:        #FFFFFF;
+  --sre-panel-2:      #F3F3F2;
+  --sre-panel-3:      #EFEFEF;
+  --sre-hover:        #F0F0F0;
+  --sre-ink:          #1C1C1C;
+  --sre-ink-soft:     #3D3D3D;
+  --sre-ink-softer:   #5E5E5E;
+  --sre-muted:        #737373;
+  --sre-line:         #E5E5E5;
+  --sre-accent:       #D9603B;
+  --sre-accent-soft:  #F9EBE7;
+  --sre-accent-hover: #C2502F;
+  --sre-shadow:       0 1px 3px rgba(0,0,0,0.05), 0 4px 12px rgba(0,0,0,0.08);
+  --sre-radius:       14px;
+}
+
+@media (prefers-color-scheme: dark) {
+  #sre-overlay,
+  #sre-sel-btn {
+    --sre-bg:           #2B2B2B;
+    --sre-panel:        #1F1F1E;
+    --sre-panel-2:      #252524;
+    --sre-panel-3:      #2A2A29;
+    --sre-hover:        #2E2E2D;
+    --sre-ink:          #F5F5F5;
+    --sre-ink-soft:     #D1D1C7;
+    --sre-ink-softer:   #B8B7AD;
+    --sre-muted:        #A2A198;
+    --sre-line:         #3E3E3C;
+    --sre-accent:       #E27B58;
+    --sre-accent-soft:  #38251F;
+    --sre-accent-hover: #EF8F6E;
+    --sre-shadow:       0 4px 6px rgba(0,0,0,0.25), 0 10px 24px rgba(0,0,0,0.35);
+  }
+}
+
+/* ================================================================
+   BACKDROP + MODAL
+   ================================================================ */
+
+#sre-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483647;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  font-family: system-ui, -apple-system, sans-serif;
+  box-sizing: border-box;
+}
+
+#sre-reader {
+  background: var(--sre-panel);
+  border-radius: var(--sre-radius);
+  box-shadow: var(--sre-shadow);
+  border: 1px solid var(--sre-line);
+  width: min(720px, 94vw);
+  padding: 36px 32px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  position: relative;
+  box-sizing: border-box;
+}
+
+/* ================================================================
+   WORD VIEW
+   ================================================================ */
+
+#sre-word-view {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  min-height: 100px;
+  justify-content: center;
+  position: relative;
+}
+
+/* Subtle vertical guide line at the ORP position */
+#sre-orp-bar {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 2px;
+  height: calc(100% - 20px);
+  background: var(--sre-accent);
+  opacity: 0.18;
+  border-radius: 1px;
+  pointer-events: none;
+}
+
+#sre-word-display {
+  font-size: clamp(32px, 5vw, 58px);
+  font-weight: 500;
+  line-height: 1.15;
+  letter-spacing: 0.01em;
+  color: var(--sre-ink);
+  min-height: 70px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  user-select: none;
+  white-space: nowrap;
+}
+
+#sre-word-before { color: var(--sre-ink); }
+
+#sre-word-orp {
+  color: var(--sre-accent);
+  position: relative;
+}
+
+/* Tiny dot above ORP letter */
+#sre-word-orp::before {
+  content: '';
+  position: absolute;
+  top: -6px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 5px;
+  height: 5px;
+  background: var(--sre-accent);
+  border-radius: 50%;
+  opacity: 0.7;
+}
+
+#sre-word-after { color: var(--sre-ink); }
+
+/* ── Progress bar ─────────────────────────────────────────────── */
+#sre-progress-track {
+  width: 100%;
+  height: 3px;
+  background: var(--sre-line);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+#sre-progress-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--sre-accent);
+  border-radius: 2px;
+  transition: width 0.12s linear;
+}
+
+/* ================================================================
+   CODE VIEW
+   ================================================================ */
+
+#sre-code-view {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+#sre-code-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--sre-muted);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+#sre-code-content {
+  background: var(--sre-panel-2);
+  border: 1px solid var(--sre-line);
+  border-radius: 10px;
+  padding: 18px 20px;
+  font-family: 'Consolas', 'Courier New', Courier, monospace;
+  font-size: 13px;
+  color: var(--sre-ink);
+  max-height: 340px;
+  overflow: auto;
+  white-space: pre;
+  margin: 0;
+  line-height: 1.6;
+  tab-size: 2;
+}
+
+#sre-code-continue {
+  align-self: flex-end;
+  background: var(--sre-accent);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 10px 22px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.1s;
+  letter-spacing: 0.01em;
+}
+
+#sre-code-continue:hover {
+  background: var(--sre-accent-hover);
+  transform: translateY(-1px);
+}
+
+#sre-code-continue:active {
+  transform: translateY(0);
+}
+
+/* ================================================================
+   CONTROLS
+   ================================================================ */
+
+#sre-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-top: 1px solid var(--sre-line);
+  padding-top: 18px;
+  flex-wrap: wrap;
+}
+
+.sre-btn {
+  background: var(--sre-panel-2);
+  border: 1px solid var(--sre-line);
+  border-radius: 8px;
+  color: var(--sre-ink);
+  font-size: 15px;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.12s, border-color 0.12s;
+  padding: 0;
+  line-height: 1;
+}
+
+.sre-btn:hover {
+  background: var(--sre-hover);
+  border-color: var(--sre-accent);
+}
+
+.sre-btn:active {
+  transform: scale(0.95);
+}
+
+#sre-close {
+  margin-left: auto;
+  background: transparent;
+  border-color: transparent;
+  color: var(--sre-muted);
+}
+
+#sre-close:hover {
+  background: var(--sre-panel-3);
+  border-color: var(--sre-line);
+  color: var(--sre-ink);
+}
+
+/* ── Speed control ─────────────────────────────────────────────── */
+#sre-speed-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 160px;
+}
+
+#sre-speed-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--sre-muted);
+  min-width: 64px;
+  white-space: nowrap;
+}
+
+#sre-speed-input {
+  flex: 1;
+  accent-color: var(--sre-accent);
+  cursor: pointer;
+  height: 4px;
+  border-radius: 2px;
+}
+
+/* ── Font selector ─────────────────────────────────────────────── */
+#sre-font-select {
+  background: var(--sre-panel-2);
+  border: 1px solid var(--sre-line);
+  border-radius: 8px;
+  color: var(--sre-ink);
+  font-size: 12px;
+  padding: 6px 10px;
+  cursor: pointer;
+  max-width: 160px;
+  min-width: 110px;
+  transition: border-color 0.12s;
+}
+
+#sre-font-select:hover {
+  border-color: var(--sre-accent);
+}
+
+/* ================================================================
+   FLOATING SELECTION BUTTON
+   ================================================================ */
+
+#sre-sel-btn {
+  position: absolute;
+  z-index: 2147483646;
+  pointer-events: auto;
+}
+
+#sre-sel-btn button {
+  background: var(--sre-accent);
+  color: #fff;
+  border: none;
+  border-radius: 20px;
+  padding: 7px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 3px 10px rgba(0,0,0,0.22);
+  transition: background 0.15s, transform 0.1s, box-shadow 0.15s;
+  white-space: nowrap;
+  letter-spacing: 0.01em;
+}
+
+#sre-sel-btn button:hover {
+  background: var(--sre-accent-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 5px 14px rgba(0,0,0,0.28);
+}
+
+#sre-sel-btn button:active {
+  transform: translateY(0);
+}

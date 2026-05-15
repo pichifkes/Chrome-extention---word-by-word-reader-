@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SwiftRead Enhanced</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+
+  <h1>Swift<span>Read</span> Enhanced</h1>
+
+  <button id="btn-read-page">▶ Read This Page</button>
+
+  <hr class="divider">
+
+  <p class="section-title">Speed</p>
+
+  <div class="setting">
+    <div class="setting-row">
+      <label for="input-cpm">Base speed</label>
+      <span class="setting-val" id="val-cpm">800 CPM</span>
+    </div>
+    <input type="range" id="input-cpm" min="100" max="3000" step="50" value="800">
+  </div>
+
+  <hr class="divider">
+
+  <p class="section-title">Pacing modifiers</p>
+
+  <div class="setting">
+    <div class="setting-row">
+      <label for="input-lwt">Long-word threshold</label>
+      <span class="setting-val" id="val-lwt">8 chars</span>
+    </div>
+    <input type="range" id="input-lwt" min="4" max="16" step="1" value="8">
+  </div>
+
+  <div class="setting">
+    <div class="setting-row">
+      <label for="input-lwm">Long-word slow-down</label>
+      <span class="setting-val" id="val-lwm">1.5×</span>
+    </div>
+    <input type="range" id="input-lwm" min="1.0" max="3.0" step="0.1" value="1.5">
+  </div>
+
+  <div class="setting">
+    <div class="setting-row">
+      <label for="input-hm">Hyphen slow-down</label>
+      <span class="setting-val" id="val-hm">1.8×</span>
+    </div>
+    <input type="range" id="input-hm" min="1.0" max="4.0" step="0.1" value="1.8">
+  </div>
+
+  <hr class="divider">
+
+  <button id="btn-reset">Reset to defaults</button>
+
+  <hr class="divider">
+
+  <p class="section-title">Keyboard shortcuts</p>
+
+  <div class="hint">
+    <div class="hint-row"><span>Play / Pause</span>   <kbd>Space</kbd></div>
+    <div class="hint-row"><span>Back one word</span>  <kbd>←</kbd></div>
+    <div class="hint-row"><span>Forward one word</span><kbd>→</kbd></div>
+    <div class="hint-row"><span>Back 10 words</span>  <kbd>↓</kbd></div>
+    <div class="hint-row"><span>Forward 10 words</span><kbd>↑</kbd></div>
+    <div class="hint-row"><span>Close reader</span>   <kbd>Esc</kbd></div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

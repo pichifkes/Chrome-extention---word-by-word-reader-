@@ -1,0 +1,170 @@
+/* ================================================================
+   SwiftRead Enhanced — Popup Styles
+   ================================================================ */
+
+:root {
+  --bg:           #F8F8F8;
+  --panel:        #FFFFFF;
+  --panel-2:      #F3F3F2;
+  --hover:        #F0F0F0;
+  --ink:          #1C1C1C;
+  --ink-soft:     #3D3D3D;
+  --muted:        #737373;
+  --line:         #E5E5E5;
+  --accent:       #D9603B;
+  --accent-soft:  #F9EBE7;
+  --accent-hover: #C2502F;
+  --shadow:       0 1px 3px rgba(0,0,0,0.05), 0 4px 12px rgba(0,0,0,0.06);
+  --radius:       10px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:           #2B2B2B;
+    --panel:        #1F1F1E;
+    --panel-2:      #252524;
+    --hover:        #2E2E2D;
+    --ink:          #F5F5F5;
+    --ink-soft:     #D1D1C7;
+    --muted:        #A2A198;
+    --line:         #3E3E3C;
+    --accent:       #E27B58;
+    --accent-soft:  #38251F;
+    --accent-hover: #EF8F6E;
+    --shadow:       0 4px 6px rgba(0,0,0,0.2), 0 10px 20px rgba(0,0,0,0.3);
+  }
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  width: 300px;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: system-ui, -apple-system, sans-serif;
+  font-size: 13px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+h1 {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ink);
+  letter-spacing: -0.01em;
+}
+
+h1 span {
+  color: var(--accent);
+}
+
+/* ── Read Page button ─────────────────────────────────────────── */
+#btn-read-page {
+  width: 100%;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius);
+  padding: 11px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  letter-spacing: 0.01em;
+  transition: background 0.15s, transform 0.1s;
+}
+
+#btn-read-page:hover   { background: var(--accent-hover); }
+#btn-read-page:active  { transform: scale(0.98); }
+
+/* ── Divider ──────────────────────────────────────────────────── */
+.divider {
+  border: none;
+  border-top: 1px solid var(--line);
+}
+
+/* ── Settings section ─────────────────────────────────────────── */
+.section-title {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 2px;
+}
+
+.setting {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.setting-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.setting label {
+  font-size: 13px;
+  color: var(--ink-soft);
+  font-weight: 500;
+}
+
+.setting-val {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--accent);
+  min-width: 54px;
+  text-align: right;
+}
+
+input[type="range"] {
+  width: 100%;
+  accent-color: var(--accent);
+  cursor: pointer;
+  height: 4px;
+}
+
+/* ── Reset link ───────────────────────────────────────────────── */
+#btn-reset {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 11px;
+  cursor: pointer;
+  text-decoration: underline;
+  padding: 0;
+  align-self: flex-start;
+}
+
+#btn-reset:hover { color: var(--ink); }
+
+/* ── Keyboard shortcuts hint ──────────────────────────────────── */
+.hint {
+  background: var(--panel-2);
+  border-radius: 8px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.hint-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.hint-row kbd {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-family: inherit;
+  font-size: 11px;
+  color: var(--ink-soft);
+}
