@@ -63,11 +63,11 @@
       orp:    target[i] ?? target[0] ?? word[0],
       after:  target.slice(i + 1) + trail,
       isLink,
-      ctx:    null,   // filled by annotateContext()
+      ctx:    null,
     };
   }
 
-  function makeCodeToken(text)  { return { type: 'code',  text: text.trim(),    ctx: null }; }
+  function makeCodeToken(text)  { return { type: 'code',  text: text.trim(), ctx: null }; }
   function makeTableToken(node) {
     const clone = node.cloneNode(true);
     clone.querySelectorAll('script, style').forEach(el => el.remove());
@@ -84,21 +84,18 @@
   // Only unambiguous open→close pairs. Straight ' and " are skipped because
   // they appear in contractions and are impossible to pair reliably.
   const CTX_OPEN = {
-    '(':      ')',
-    '[':      ']',
-    '{':      '}',
-    '“': '”',  // " → "
-    '‘': '’',  // ' → '
-    '«': '»',  // « → »
-    '‹': '›',  // ‹ → ›
+    '(':  ')',
+    '[':  ']',
+    '{':  '}',
+    '"': '”',
+    '‘': '’',
+    '«': '»',
+    '‹': '›',
   };
 
-  // Walk every token and attach token.ctx = { open, close } while inside a
-  // bracket/quote, or null outside. Works across code/table blocks too.
   function annotateContext(tokens) {
     const stack = [];
     for (const token of tokens) {
-      // Only word tokens can open/close brackets; others just inherit the stack.
       if (token.type === 'word') {
         const lead  = token.text.match(LEADING_PUNCT)?.[0]  ?? '';
         const trail = token.text.match(TRAILING_PUNCT)?.[0] ?? '';
@@ -176,11 +173,24 @@
   // ================================================================
 
   let overlay = null;
+  const refs  = {};
   const state = { tokens: [], index: 0, playing: false, timer: null, waitingForBlock: false };
 
   // ================================================================
   // OVERLAY CREATION
   // ================================================================
+
+  // Wire up a slider inside the overlay: sets initial value from cfg, updates
+  // cfg and persists on every input event.
+  function bindOverlaySlider(inputKey, labelKey, cfgKey, format, parse) {
+    refs[inputKey].value = cfg[cfgKey];
+    refs[labelKey].textContent = format(cfg[cfgKey]);
+    refs[inputKey].addEventListener('input', () => {
+      cfg[cfgKey] = parse(refs[inputKey].value);
+      refs[labelKey].textContent = format(cfg[cfgKey]);
+      saveSettings({ [cfgKey]: cfg[cfgKey] });
+    });
+  }
 
   function createOverlay() {
     if (overlay) return;
@@ -244,36 +254,37 @@
 
     document.body.appendChild(overlay);
 
-    overlay.querySelector('#sre-playpause').addEventListener('click', togglePlay);
+    // Cache element references so renderToken/showView/adjustWPM never call
+    // querySelector on the hot path.
+    const q = id => overlay.querySelector(id);
+    refs.wordView     = q('#sre-word-view');
+    refs.codeView     = q('#sre-code-view');
+    refs.tableView    = q('#sre-table-view');
+    refs.wordBefore   = q('#sre-word-before');
+    refs.wordOrp      = q('#sre-word-orp');
+    refs.wordAfter    = q('#sre-word-after');
+    refs.wordDisplay  = q('#sre-word-display');
+    refs.ctxLeft      = q('#sre-ctx-left');
+    refs.ctxRight     = q('#sre-ctx-right');
+    refs.codeContent  = q('#sre-code-content');
+    refs.tableContent = q('#sre-table-content');
+    refs.progressFill = q('#sre-progress-fill');
+    refs.playpause    = q('#sre-playpause');
+    refs.speedInput   = q('#sre-speed-input');
+    refs.speedLabel   = q('#sre-speed-label');
+    refs.penaltyInput = q('#sre-penalty-input');
+    refs.penaltyLabel = q('#sre-penalty-label');
+
+    refs.playpause.addEventListener('click', togglePlay);
     // Buttons jump 10 words; arrow keys (handleKeydown) step 1 word for fine control.
-    overlay.querySelector('#sre-prev').addEventListener('click', () => seekBy(-10));
-    overlay.querySelector('#sre-next').addEventListener('click', () => seekBy(+10));
-    overlay.querySelector('#sre-close').addEventListener('click', closeReader);
-    overlay.querySelector('#sre-code-continue').addEventListener('click', onBlockContinue);
-    overlay.querySelector('#sre-table-continue').addEventListener('click', onBlockContinue);
+    q('#sre-prev').addEventListener('click', () => seekBy(-10));
+    q('#sre-next').addEventListener('click', () => seekBy(+10));
+    q('#sre-close').addEventListener('click', closeReader);
+    q('#sre-code-continue').addEventListener('click', onBlockContinue);
+    q('#sre-table-continue').addEventListener('click', onBlockContinue);
 
-    // WPM slider
-    const speedInput = overlay.querySelector('#sre-speed-input');
-    const speedLabel = overlay.querySelector('#sre-speed-label');
-    speedInput.value = cfg.wpm;
-    speedLabel.textContent = `${cfg.wpm} WPM`;
-    speedInput.addEventListener('input', () => {
-      cfg.wpm = parseInt(speedInput.value, 10);
-      speedLabel.textContent = `${cfg.wpm} WPM`;
-      saveSettings({ wpm: cfg.wpm });
-      // No need to reschedule — tick() recomputes duration from cfg on every call.
-    });
-
-    // Penalty slider
-    const penaltyInput = overlay.querySelector('#sre-penalty-input');
-    const penaltyLabel = overlay.querySelector('#sre-penalty-label');
-    penaltyInput.value = cfg.charPenaltyFactor;
-    penaltyLabel.textContent = `Penalty ${Math.round(cfg.charPenaltyFactor * 100)}%`;
-    penaltyInput.addEventListener('input', () => {
-      cfg.charPenaltyFactor = parseFloat(penaltyInput.value);
-      penaltyLabel.textContent = `Penalty ${Math.round(cfg.charPenaltyFactor * 100)}%`;
-      saveSettings({ charPenaltyFactor: cfg.charPenaltyFactor });
-    });
+    bindOverlaySlider('speedInput',   'speedLabel',   'wpm',             v => `${v} WPM`,                          v => parseInt(v, 10));
+    bindOverlaySlider('penaltyInput', 'penaltyLabel', 'charPenaltyFactor', v => `Penalty ${Math.round(v * 100)}%`, v => parseFloat(v));
 
     overlay.addEventListener('click', e => { if (e.target === overlay) closeReader(); });
     document.addEventListener('keydown', handleKeydown);
@@ -312,8 +323,7 @@
   }
 
   function applyFont(font) {
-    const d = overlay?.querySelector('#sre-word-display');
-    if (d) d.style.fontFamily = `"${font}", system-ui, sans-serif`;
+    if (refs.wordDisplay) refs.wordDisplay.style.fontFamily = `"${font}", system-ui, sans-serif`;
   }
 
   // ================================================================
@@ -323,9 +333,9 @@
   function showView(name) {
     // Use style.display directly to avoid the CSS specificity conflict where
     // `#sre-code-view { display:flex }` would override the [hidden] attribute.
-    overlay.querySelector('#sre-word-view').style.display  = name === 'word'  ? ''     : 'none';
-    overlay.querySelector('#sre-code-view').style.display  = name === 'code'  ? 'flex' : 'none';
-    overlay.querySelector('#sre-table-view').style.display = name === 'table' ? 'flex' : 'none';
+    refs.wordView.style.display  = name === 'word'  ? ''     : 'none';
+    refs.codeView.style.display  = name === 'code'  ? 'flex' : 'none';
+    refs.tableView.style.display = name === 'table' ? 'flex' : 'none';
   }
 
   function renderToken(token) {
@@ -333,7 +343,7 @@
 
     if (token.type === 'code') {
       showView('code');
-      overlay.querySelector('#sre-code-content').textContent = token.text;
+      refs.codeContent.textContent = token.text;
       state.waitingForBlock = true;
       pauseReader();
       return;
@@ -341,26 +351,26 @@
 
     if (token.type === 'table') {
       showView('table');
-      overlay.querySelector('#sre-table-content').innerHTML = token.html;
+      refs.tableContent.innerHTML = token.html;
       state.waitingForBlock = true;
       pauseReader();
       return;
     }
 
     showView('word');
-    overlay.querySelector('#sre-word-before').textContent = token.before;
-    overlay.querySelector('#sre-word-orp').textContent    = token.orp;
-    overlay.querySelector('#sre-word-after').textContent  = token.after;
-    overlay.querySelector('#sre-word-display').classList.toggle('sre-is-link', !!token.isLink);
+    refs.wordBefore.textContent = token.before;
+    refs.wordOrp.textContent    = token.orp;
+    refs.wordAfter.textContent  = token.after;
+    refs.wordDisplay.classList.toggle('sre-is-link', !!token.isLink);
 
     // Bracket/quote context: show the opening char on the far left of the word
     // view and its matching close on the far right, persisting until the bracket closes.
-    overlay.querySelector('#sre-ctx-left').textContent  = token.ctx?.open  ?? '';
-    overlay.querySelector('#sre-ctx-right').textContent = token.ctx?.close ?? '';
+    refs.ctxLeft.textContent  = token.ctx?.open  ?? '';
+    refs.ctxRight.textContent = token.ctx?.close ?? '';
 
     const pct = state.tokens.length > 1
       ? ((state.index - 1) / (state.tokens.length - 1)) * 100 : 100;
-    overlay.querySelector('#sre-progress-fill').style.width = `${pct}%`;
+    refs.progressFill.style.width = `${pct}%`;
   }
 
   // ================================================================
@@ -381,18 +391,17 @@
 
   function startReader(tokens) {
     if (tokens.length === 0) return;
-    annotateContext(tokens);   // fill bracket context in-place before display
-    state.tokens        = tokens;
-    state.index         = 0;
-    state.playing       = false;
+    annotateContext(tokens);
+    state.tokens          = tokens;
+    state.index           = 0;
+    state.playing         = false;
     state.waitingForBlock = false;
     clearTimeout(state.timer);
 
     createOverlay();
     overlay.style.display = 'flex';
-    showView('word');          // ensure word view is visible from the start
+    showView('word');
 
-    // Show first word, then wait for the user to press ▶ or Space.
     state.index = 1;
     renderToken(tokens[0]);
     updatePlayPauseBtn();
@@ -413,11 +422,7 @@
     tick();
   }
 
-  function stopReader() {
-    state.playing = false;
-    clearTimeout(state.timer);
-    updatePlayPauseBtn();
-  }
+  function stopReader() { pauseReader(); }
 
   function seekBy(delta) {
     clearTimeout(state.timer);
@@ -446,8 +451,7 @@
   }
 
   function updatePlayPauseBtn() {
-    const btn = overlay?.querySelector('#sre-playpause');
-    if (btn) btn.textContent = state.playing ? '⏸' : '▶';
+    if (refs.playpause) refs.playpause.textContent = state.playing ? '⏸' : '▶';
   }
 
   // Adjust WPM by ±10 and sync the in-reader slider.
@@ -456,10 +460,8 @@
   function adjustWPM(delta) {
     cfg.wpm = Math.min(800, Math.max(50, cfg.wpm + delta));
     saveSettings({ wpm: cfg.wpm });
-    const input = overlay?.querySelector('#sre-speed-input');
-    const label = overlay?.querySelector('#sre-speed-label');
-    if (input) input.value = cfg.wpm;
-    if (label) label.textContent = `${cfg.wpm} WPM`;
+    if (refs.speedInput) refs.speedInput.value = cfg.wpm;
+    if (refs.speedLabel) refs.speedLabel.textContent = `${cfg.wpm} WPM`;
   }
 
   function handleKeydown(e) {
@@ -472,8 +474,8 @@
         state.waitingForBlock ? onBlockContinue() : togglePlay();
         break;
       // Arrow keys = fine single-word seek; ⏮/⏭ buttons = 10-word jump.
-      case 'ArrowRight': e.preventDefault(); seekBy(+1);    break;
-      case 'ArrowLeft':  e.preventDefault(); seekBy(-1);    break;
+      case 'ArrowRight': e.preventDefault(); seekBy(+1);     break;
+      case 'ArrowLeft':  e.preventDefault(); seekBy(-1);     break;
       case 'ArrowUp':    e.preventDefault(); adjustWPM(+10); break;
       case 'ArrowDown':  e.preventDefault(); adjustWPM(-10); break;
     }
