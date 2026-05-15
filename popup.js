@@ -29,6 +29,32 @@ function bindSlider(inputId, valId, storageKey, format) {
   };
 }
 
+// Send an action directly to the active tab, injecting the content script
+// first if it hasn't been loaded yet (handles pre-existing tabs).
+async function sendToActiveTab(action) {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab?.id) return;
+
+  try {
+    // Check whether the content script is already running on this tab.
+    const [{ result: loaded } = {}] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: () => !!window.__sreLoaded,
+    });
+
+    if (!loaded) {
+      await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content.js'] });
+      // CSS injection failure is non-fatal — overlay still works without custom styles.
+      await chrome.scripting.insertCSS({ target: { tabId: tab.id }, files: ['content.css'] }).catch(() => {});
+    }
+
+    chrome.tabs.sendMessage(tab.id, { action });
+  } catch (err) {
+    // Browser-internal pages (edge://, about:, PDF viewer, etc.) block injection.
+    console.warn('SwiftRead: cannot inject on this page —', err.message);
+  }
+}
+
 // ── Init ─────────────────────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -54,10 +80,9 @@ document.addEventListener('DOMContentLoaded', () => {
     setHm(data.hyphenMultiplier);
   });
 
-  // Read Page button → send message to content script via background
+  // Read Page — inject content script if needed, then send action, then close.
   $('btn-read-page').addEventListener('click', () => {
-    chrome.runtime.sendMessage({ target: 'content', action: 'readPage' });
-    window.close();
+    sendToActiveTab('readPage').then(() => window.close());
   });
 
   // Reset to defaults

@@ -13,22 +13,32 @@ chrome.runtime.onInstalled.addListener(() => {
   });
 });
 
+// Injects the content script into a tab if it isn't already running, then
+// sends the requested action. Handles tabs that were open before the extension
+// was installed or reloaded.
+async function sendToTab(tabId, action) {
+  try {
+    const [{ result: loaded } = {}] = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => !!window.__sreLoaded,
+    });
+
+    if (!loaded) {
+      await chrome.scripting.executeScript({ target: { tabId }, files: ['content.js'] });
+      await chrome.scripting.insertCSS({ target: { tabId }, files: ['content.css'] }).catch(() => {});
+    }
+
+    chrome.tabs.sendMessage(tabId, { action });
+  } catch (err) {
+    console.warn('SwiftRead: cannot inject on this page —', err.message);
+  }
+}
+
 chrome.contextMenus.onClicked.addListener((info, tab) => {
   if (!tab?.id) return;
   if (info.menuItemId === 'sre-read-selection') {
-    chrome.tabs.sendMessage(tab.id, { action: 'readSelection' });
+    sendToTab(tab.id, 'readSelection');
   } else if (info.menuItemId === 'sre-read-page') {
-    chrome.tabs.sendMessage(tab.id, { action: 'readPage' });
-  }
-});
-
-// Forward messages from popup → active content script
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.target === 'content') {
-    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-      if (tabs[0]?.id) {
-        chrome.tabs.sendMessage(tabs[0].id, message);
-      }
-    });
+    sendToTab(tab.id, 'readPage');
   }
 });

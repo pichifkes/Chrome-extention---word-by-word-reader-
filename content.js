@@ -497,10 +497,8 @@
       const sel = window.getSelection();
       if (sel && !sel.isCollapsed && sel.toString().trim().length > 3) {
         const rect = sel.getRangeAt(0).getBoundingClientRect();
-        showSelectionButton(
-          window.scrollX + rect.right,
-          window.scrollY + rect.bottom + 10,
-        );
+        // Use viewport coordinates — button uses position:fixed in CSS.
+        showSelectionButton(rect.right, rect.bottom + 10);
       } else {
         hideSelectionButton();
       }
@@ -516,14 +514,20 @@
   // MESSAGE LISTENER (from background.js / popup.js)
   // ================================================================
 
-  chrome.runtime.onMessage.addListener(async message => {
-    await loadSettings();
+  // Synchronous listener — returning nothing (not true) tells Chrome the
+  // channel can be closed immediately, avoiding "message port closed" errors.
+  // The actual work runs inside loadSettings().then() which is fine.
+  chrome.runtime.onMessage.addListener((message) => {
     if (message.action === 'readSelection') {
-      const tokens = tokensFromSelection();
-      if (tokens.length > 0) startReader(tokens);
+      loadSettings().then(() => {
+        const tokens = tokensFromSelection();
+        if (tokens.length > 0) startReader(tokens);
+      });
     } else if (message.action === 'readPage') {
-      const tokens = tokensFromPage();
-      if (tokens.length > 0) startReader(tokens);
+      loadSettings().then(() => {
+        const tokens = tokensFromPage();
+        if (tokens.length > 0) startReader(tokens);
+      });
     }
   });
 

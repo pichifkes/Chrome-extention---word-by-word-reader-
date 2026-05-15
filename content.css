@@ -318,7 +318,7 @@
    ================================================================ */
 
 #sre-sel-btn {
-  position: absolute;
+  position: fixed;
   z-index: 2147483646;
   pointer-events: auto;
 }
