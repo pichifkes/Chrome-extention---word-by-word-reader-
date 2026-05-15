@@ -96,6 +96,25 @@
   position: relative;
 }
 
+/* Bracket/quote context indicators — pinned to the left/right edges of the
+   word view and visible for as long as the bracket/quote is open. */
+#sre-ctx-left,
+#sre-ctx-right {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: clamp(22px, 3.5vw, 44px);
+  font-weight: 300;
+  color: var(--sre-muted);
+  opacity: 0.6;
+  pointer-events: none;
+  user-select: none;
+  line-height: 1;
+  transition: opacity 0.15s;
+}
+#sre-ctx-left  { left: 4px; }
+#sre-ctx-right { right: 4px; }
+
 /* Subtle vertical guide line at the ORP position */
 #sre-orp-bar {
   position: absolute;
@@ -281,6 +300,31 @@
   background: var(--sre-panel-3);
   border-color: var(--sre-line);
   color: var(--sre-ink);
+}
+
+/* ── Penalty control (same layout as speed) ────────────────────── */
+#sre-penalty-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 140px;
+}
+
+#sre-penalty-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--sre-muted);
+  min-width: 78px;
+  white-space: nowrap;
+}
+
+#sre-penalty-input {
+  flex: 1;
+  accent-color: var(--sre-accent);
+  cursor: pointer;
+  height: 4px;
+  border-radius: 2px;
 }
 
 /* ── Speed control ─────────────────────────────────────────────── */
