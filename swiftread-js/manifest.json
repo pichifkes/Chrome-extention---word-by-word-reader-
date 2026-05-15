@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "SwiftRead Enhanced",
+  "version": "1.0.0",
+  "description": "Adaptive RSVP speed reader — slows for long/hyphenated words, pauses for code blocks.",
+  "permissions": ["activeTab", "storage", "contextMenus", "scripting"],
+  "host_permissions": ["<all_urls>"],
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "SwiftRead Enhanced"
+  },
+  "web_accessible_resources": [{
+    "resources": ["pkg/swiftread_rs.js", "pkg/swiftread_rs_bg.wasm"],
+    "matches": ["<all_urls>"]
+  }]
+}
