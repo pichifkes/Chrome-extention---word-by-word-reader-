@@ -607,17 +607,21 @@
   function hideSelectionButton() { if (selBtn) selBtn.style.display = 'none'; }
 
   if (looksLikePdf()) {
-    // Inside a PDF plugin, mouseup doesn't propagate to document.
-    // selectionchange fires even for PDF selections via Chrome's selection bridge.
-    document.addEventListener('selectionchange', () => {
-      const sel = window.getSelection();
-      if (sel && !sel.isCollapsed && sel.toString().trim().length > 3) {
-        // Can't get a DOM rect for a PDF selection — anchor button to top-right.
-        showSelectionButton(window.innerWidth - 130, 16);
-      } else {
-        hideSelectionButton();
-      }
+    // PDF plugin swallows mouse events and isolates window.getSelection() from
+    // content script context. Show a permanent button; clicking it asks the
+    // background to read the selection via chrome.scripting in MAIN world.
+    const pdfSelBtn = document.createElement('div');
+    pdfSelBtn.id = 'sre-pdf-sel-btn';
+    pdfSelBtn.innerHTML = '<button>▶ Read Selection</button>';
+    pdfSelBtn.querySelector('button').addEventListener('click', () => {
+      chrome.runtime.sendMessage({ action: 'getPdfSelection' }, async resp => {
+        if (!resp?.text) return;
+        await loadSettings();
+        const t = await buildTokens([{ type: 'text', text: resp.text, is_link: false }]);
+        if (t.length) startReader(t);
+      });
     });
+    document.body.appendChild(pdfSelBtn);
   } else {
     document.addEventListener('mouseup', e => {
       if (e.target.closest('#sre-overlay') || e.target.closest('#sre-sel-btn')) return;
@@ -640,7 +644,13 @@
   // ================================================================
 
   chrome.runtime.onMessage.addListener((message) => {
-    if (message.action === 'readSelection') {
+    if (message.action === 'readSelectionText') {
+      // Pre-extracted text from MAIN world (PDF pages); skip DOM selection entirely.
+      loadSettings().then(async () => {
+        const t = await buildTokens([{ type: 'text', text: message.text, is_link: false }]);
+        if (t.length) startReader(t);
+      });
+    } else if (message.action === 'readSelection') {
       loadSettings().then(() => tokensFromSelection()).then(t => { if (t.length) startReader(t); });
     } else if (message.action === 'readPage') {
       loadSettings().then(async () => {

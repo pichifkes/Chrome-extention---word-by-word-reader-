@@ -37,6 +37,17 @@ async function sendToActiveTab(action) {
       await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content.js'] });
       await chrome.scripting.insertCSS({ target: { tabId: tab.id }, files: ['content.css'] }).catch(() => {});
     }
+    if (action === 'readSelection' && tab.url && /\.pdf(\?|#|$)/i.test(tab.url)) {
+      const [{ result: text }] = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        world: 'MAIN',
+        func: () => window.getSelection()?.toString()?.trim() ?? '',
+      });
+      if (text?.length > 2) {
+        chrome.tabs.sendMessage(tab.id, { action: 'readSelectionText', text });
+        return;
+      }
+    }
     chrome.tabs.sendMessage(tab.id, { action });
   } catch (err) {
     console.warn('SwiftRead: cannot inject on this page —', err.message);
