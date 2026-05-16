@@ -260,7 +260,7 @@ pub fn build_tokens(segments_json: &str) -> String {
 pub fn word_duration(
     word: &str,
     wpm: f64,
-    char_penalty_factor: f64,
+    char_penalty_ms: f64,
     hyphen_multiplier: f64,
     min_duration_ms: f64,
     max_duration_ms: f64,
@@ -268,7 +268,7 @@ pub fn word_duration(
     let base = 60_000.0 / wpm;
     let chars = word.chars().filter(|c| c.is_alphanumeric()).count() as f64;
     let extra_chars = (chars - 5.0).max(0.0);
-    let mut duration = base + extra_chars * base * char_penalty_factor;
+    let mut duration = base + extra_chars * char_penalty_ms;
 
     let stripped_len = word.chars().filter(|&c| c != '-').count();
     if word.contains('-') && stripped_len > 3 {

@@ -255,11 +255,21 @@
 
 #sre-controls {
   display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border-top: 1px solid var(--sre-line);
+  padding-top: 16px;
+}
+
+/* ── Transport row ─────────────────────────────────────────────── */
+#sre-ctrl-transport {
+  display: flex;
   align-items: center;
   gap: 8px;
-  border-top: 1px solid var(--sre-line);
-  padding-top: 18px;
-  flex-wrap: wrap;
+}
+
+#sre-ctrl-transport #sre-close {
+  margin-left: auto;
 }
 
 .sre-btn {
@@ -285,12 +295,9 @@
   border-color: var(--sre-accent);
 }
 
-.sre-btn:active {
-  transform: scale(0.95);
-}
+.sre-btn:active { transform: scale(0.95); }
 
 #sre-close {
-  margin-left: auto;
   background: transparent;
   border-color: transparent;
   color: var(--sre-muted);
@@ -302,55 +309,53 @@
   color: var(--sre-ink);
 }
 
-/* ── Penalty control (same layout as speed) ────────────────────── */
-#sre-penalty-wrap {
+/* ── Slider rows (WPM + penalty) ───────────────────────────────── */
+.sre-ctrl-row {
   display: flex;
   align-items: center;
   gap: 8px;
-  flex: 1;
-  min-width: 140px;
 }
 
-#sre-penalty-label {
-  font-size: 12px;
+.sre-ctrl-lbl {
+  font-size: 11px;
   font-weight: 600;
   color: var(--sre-muted);
-  min-width: 78px;
   white-space: nowrap;
+  min-width: 96px;
+  text-align: right;
+  flex-shrink: 0;
 }
 
-#sre-penalty-input {
+.sre-ctrl-slider {
   flex: 1;
   accent-color: var(--sre-accent);
   cursor: pointer;
+  min-width: 80px;
   height: 4px;
   border-radius: 2px;
 }
 
-/* ── Speed control ─────────────────────────────────────────────── */
-#sre-speed-wrap {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex: 1;
-  min-width: 160px;
-}
-
-#sre-speed-label {
+.sre-ctrl-num {
+  width: 62px;
+  background: var(--sre-panel-2);
+  border: 1px solid var(--sre-line);
+  border-radius: 6px;
+  color: var(--sre-ink);
   font-size: 12px;
-  font-weight: 600;
-  color: var(--sre-muted);
-  min-width: 64px;
-  white-space: nowrap;
+  padding: 4px 6px;
+  text-align: center;
+  flex-shrink: 0;
+  -moz-appearance: textfield;
 }
 
-#sre-speed-input {
-  flex: 1;
-  accent-color: var(--sre-accent);
-  cursor: pointer;
-  height: 4px;
-  border-radius: 2px;
+.sre-ctrl-num:focus {
+  outline: none;
+  border-color: var(--sre-accent);
 }
+
+/* Keep spinner arrows visible so exact-value editing is obvious */
+.sre-ctrl-num::-webkit-inner-spin-button,
+.sre-ctrl-num::-webkit-outer-spin-button { opacity: 1; }
 
 /* ── Font selector ─────────────────────────────────────────────── */
 #sre-font-select {
@@ -359,16 +364,15 @@
   border-radius: 8px;
   color: var(--sre-ink);
   font-size: 12px;
-  padding: 6px 10px;
+  padding: 5px 8px;
   cursor: pointer;
-  max-width: 160px;
-  min-width: 110px;
+  max-width: 140px;
+  min-width: 90px;
+  flex-shrink: 0;
   transition: border-color 0.12s;
 }
 
-#sre-font-select:hover {
-  border-color: var(--sre-accent);
-}
+#sre-font-select:hover { border-color: var(--sre-accent); }
 
 /* ================================================================
    TABLE VIEW

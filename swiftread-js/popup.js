@@ -1,33 +1,30 @@
 // popup.js — SwiftRead Enhanced Settings Popup
 
 const DEFAULTS = {
-  wpm:               250,
-  charPenaltyFactor: 0.1,
-  hyphenMultiplier:  1.8,
-  minDurationMs:     80,
-  maxDurationMs:     2000,
+  wpm:              250,
+  charPenaltyMs:    25,
+  hyphenMultiplier: 1.8,
+  minDurationMs:    80,
+  maxDurationMs:    2000,
 };
-
-// ── Helpers ──────────────────────────────────────────────────────
 
 function $(id) { return document.getElementById(id); }
 
-function bindSlider(inputId, valId, storageKey, format) {
-  const input = $(inputId);
-  const label = $(valId);
-  input.addEventListener('input', () => {
-    const v = parseFloat(input.value);
-    label.textContent = format(v);
+// Bind a range slider + number input pair to a storage key.
+function bindSetting(sliderId, numId, storageKey, parse, min, max) {
+  const slider = $(sliderId);
+  const num    = $(numId);
+  const apply  = (raw) => {
+    const v = Math.min(max, Math.max(min, parse(raw)));
+    slider.value = v;
+    num.value    = v;
     chrome.storage.sync.set({ [storageKey]: v });
-  });
-  return (value) => {
-    input.value = value;
-    label.textContent = format(value);
   };
+  slider.addEventListener('input',  () => apply(slider.value));
+  num.addEventListener('change',    () => apply(num.value));
+  return (value) => { slider.value = value; num.value = value; };
 }
 
-// Send an action directly to the active tab, injecting the content script
-// first if it hasn't been loaded yet (handles pre-existing tabs).
 async function sendToActiveTab(action) {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab?.id) return;
@@ -46,22 +43,15 @@ async function sendToActiveTab(action) {
   }
 }
 
-// ── Init ─────────────────────────────────────────────────────────
-
 document.addEventListener('DOMContentLoaded', () => {
 
-  const setWpm = bindSlider('input-wpm', 'val-wpm', 'wpm',
-    v => `${Math.round(v)} WPM`);
-
-  const setCpp = bindSlider('input-cpp', 'val-cpp', 'charPenaltyFactor',
-    v => `${Math.round(v * 100)}% / char`);
-
-  const setHm = bindSlider('input-hm', 'val-hm', 'hyphenMultiplier',
-    v => `${v.toFixed(1)}×`);
+  const setWpm = bindSetting('input-wpm', 'num-wpm', 'wpm',           parseInt,   50,  800);
+  const setCpp = bindSetting('input-cpp', 'num-cpp', 'charPenaltyMs', parseFloat,  0,  500);
+  const setHm  = bindSliderOnly('input-hm', 'val-hm', 'hyphenMultiplier', v => `${v.toFixed(1)}×`);
 
   chrome.storage.sync.get(DEFAULTS, data => {
     setWpm(data.wpm);
-    setCpp(data.charPenaltyFactor);
+    setCpp(data.charPenaltyMs);
     setHm(data.hyphenMultiplier);
   });
 
@@ -72,9 +62,21 @@ document.addEventListener('DOMContentLoaded', () => {
   $('btn-reset').addEventListener('click', () => {
     chrome.storage.sync.set(DEFAULTS, () => {
       setWpm(DEFAULTS.wpm);
-      setCpp(DEFAULTS.charPenaltyFactor);
+      setCpp(DEFAULTS.charPenaltyMs);
       setHm(DEFAULTS.hyphenMultiplier);
     });
   });
 
 });
+
+// Hyphen multiplier keeps the old label-only pattern (no number input).
+function bindSliderOnly(sliderId, valId, storageKey, format) {
+  const slider = $(sliderId);
+  const label  = $(valId);
+  slider.addEventListener('input', () => {
+    const v = parseFloat(slider.value);
+    label.textContent = format(v);
+    chrome.storage.sync.set({ [storageKey]: v });
+  });
+  return (value) => { slider.value = value; label.textContent = format(value); };
+}

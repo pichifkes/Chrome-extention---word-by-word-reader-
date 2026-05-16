@@ -11,12 +11,12 @@
   // ================================================================
 
   const DEFAULTS = {
-    wpm:               250,
-    charPenaltyFactor: 0.1,
-    font:              'system-ui',
-    hyphenMultiplier:  1.8,
-    minDurationMs:     80,
-    maxDurationMs:     2000,
+    wpm:              250,
+    charPenaltyMs:    25,   // ms added per alphanumeric char above 5
+    font:             'system-ui',
+    hyphenMultiplier: 1.8,
+    minDurationMs:    80,
+    maxDurationMs:    2000,
   };
 
   let cfg = { ...DEFAULTS };
@@ -57,12 +57,11 @@
     return wasmInitPromise;
   }
 
-  // Called at tick time — always reads current cfg so live slider/key changes
-  // take effect on the very next word without restarting.
+  // Called at tick time — reads current cfg so live changes take effect immediately.
   function wordDuration(word) {
     if (wasmFns) {
       return wasmFns.word_duration(
-        word, cfg.wpm, cfg.charPenaltyFactor,
+        word, cfg.wpm, cfg.charPenaltyMs,
         cfg.hyphenMultiplier, cfg.minDurationMs, cfg.maxDurationMs,
       );
     }
@@ -70,13 +69,13 @@
     const base       = 60_000 / cfg.wpm;
     const chars      = word.replace(/[^a-zA-Z0-9]/g, '').length;
     const extraChars = Math.max(0, chars - 5);
-    let   duration   = base + extraChars * base * cfg.charPenaltyFactor;
+    let   duration   = base + extraChars * cfg.charPenaltyMs;
     if (word.includes('-') && word.replace(/-/g, '').length > 3) duration *= cfg.hyphenMultiplier;
     return Math.min(Math.max(duration, cfg.minDurationMs), cfg.maxDurationMs);
   }
 
   // ================================================================
-  // DOM → SEGMENT EXTRACTION (JS — DOM walking stays out of WASM)
+  // DOM → SEGMENT EXTRACTION
   // ================================================================
 
   const SKIP_TAGS = new Set([
@@ -85,8 +84,6 @@
     'NAV', 'FOOTER', 'HEADER', 'ASIDE',
   ]);
 
-  // Produces a flat array of segments. Rust receives this JSON and handles all
-  // word splitting, ORP calculation, and bracket-context annotation.
   function extractSegments(node, segments = [], inLink = false) {
     if (node.nodeType === Node.TEXT_NODE) {
       const text = node.textContent.replace(/\s+/g, ' ').trim();
@@ -129,7 +126,6 @@
     return segments;
   }
 
-  // Send segments to Rust and normalise the returned token array.
   async function buildTokens(segments) {
     const fns = await initWasm();
     if (fns) {
@@ -149,14 +145,14 @@
   }
 
   // ================================================================
-  // JS TOKEN FALLBACK (mirrors Rust logic exactly)
+  // JS TOKEN FALLBACK
   // ================================================================
 
-  const LEADING_PUNCT  = /^[(\[{"'«‹“‘`]+/;
-  const TRAILING_PUNCT = /[)\]}"'»›”’`.,;:!?…]+$/;
+  const LEADING_PUNCT  = /^[(\[{"'«‹"'`]+/;
+  const TRAILING_PUNCT = /[)\]}"'»›"'`.,;:!?…]+$/;
   const CTX_OPEN = {
     '(': ')', '[': ']', '{': '}',
-    '“': '”', '‘': '’', '«': '»', '‹': '›',
+    '"': '"', '‘': '’', '«': '»', '‹': '›',
   };
 
   function makeWordTokenJS(word, isLink) {
@@ -236,14 +232,20 @@
   // OVERLAY CREATION
   // ================================================================
 
-  function bindOverlaySlider(inputKey, labelKey, cfgKey, format, parse) {
-    refs[inputKey].value = cfg[cfgKey];
-    refs[labelKey].textContent = format(cfg[cfgKey]);
-    refs[inputKey].addEventListener('input', () => {
-      cfg[cfgKey] = parse(refs[inputKey].value);
-      refs[labelKey].textContent = format(cfg[cfgKey]);
-      saveSettings({ [cfgKey]: cfg[cfgKey] });
-    });
+  // Bind a slider + number input pair to a cfg key. Both inputs stay in sync;
+  // clamp to [min, max] so out-of-range typed values are caught.
+  function bindOverlayControl(sliderKey, numKey, cfgKey, parse, min, max) {
+    const apply = (raw) => {
+      const v = Math.min(max, Math.max(min, parse(raw)));
+      cfg[cfgKey] = v;
+      refs[sliderKey].value = v;
+      refs[numKey].value    = v;
+      saveSettings({ [cfgKey]: v });
+    };
+    refs[sliderKey].value = cfg[cfgKey];
+    refs[numKey].value    = cfg[cfgKey];
+    refs[sliderKey].addEventListener('input',  () => apply(refs[sliderKey].value));
+    refs[numKey].addEventListener('change',    () => apply(refs[numKey].value));
   }
 
   function createOverlay() {
@@ -285,23 +287,23 @@
 
         <!-- ── Controls ── -->
         <div id="sre-controls">
-          <button class="sre-btn" id="sre-prev"      title="Back 10 words (←)">⏮</button>
-          <button class="sre-btn" id="sre-playpause" title="Play / Pause (Space)">▶</button>
-          <button class="sre-btn" id="sre-next"      title="Forward 10 words (→)">⏭</button>
-
-          <div id="sre-speed-wrap">
-            <span id="sre-speed-label">250 WPM</span>
-            <input type="range" id="sre-speed-input" min="50" max="800" step="10" value="250">
+          <div id="sre-ctrl-transport">
+            <button class="sre-btn" id="sre-prev"      title="Back 10 words (←)">⏮</button>
+            <button class="sre-btn" id="sre-playpause" title="Play / Pause (Space)">▶</button>
+            <button class="sre-btn" id="sre-next"      title="Forward 10 words (→)">⏭</button>
+            <button class="sre-btn" id="sre-close"     title="Close (Esc)">✕</button>
           </div>
-
-          <div id="sre-penalty-wrap">
-            <span id="sre-penalty-label">Penalty 10%</span>
-            <input type="range" id="sre-penalty-input" min="0" max="0.5" step="0.05" value="0.1">
+          <div class="sre-ctrl-row">
+            <span class="sre-ctrl-lbl">WPM</span>
+            <input type="range"  class="sre-ctrl-slider" id="sre-speed-input" min="50"  max="800" step="10" value="250">
+            <input type="number" class="sre-ctrl-num"    id="sre-speed-num"   min="50"  max="800" step="10" value="250">
           </div>
-
-          <select id="sre-font-select" title="Display font"></select>
-
-          <button class="sre-btn" id="sre-close" title="Close (Esc)">✕</button>
+          <div class="sre-ctrl-row">
+            <span class="sre-ctrl-lbl">ms / extra char</span>
+            <input type="range"  class="sre-ctrl-slider" id="sre-penalty-input" min="0" max="500" step="5" value="25">
+            <input type="number" class="sre-ctrl-num"    id="sre-penalty-num"   min="0" max="500" step="5" value="25">
+            <select id="sre-font-select" title="Display font"></select>
+          </div>
         </div>
       </div>
     `;
@@ -323,9 +325,9 @@
     refs.progressFill = q('#sre-progress-fill');
     refs.playpause    = q('#sre-playpause');
     refs.speedInput   = q('#sre-speed-input');
-    refs.speedLabel   = q('#sre-speed-label');
+    refs.speedNum     = q('#sre-speed-num');
     refs.penaltyInput = q('#sre-penalty-input');
-    refs.penaltyLabel = q('#sre-penalty-label');
+    refs.penaltyNum   = q('#sre-penalty-num');
 
     refs.playpause.addEventListener('click', togglePlay);
     q('#sre-prev').addEventListener('click', () => seekBy(-10));
@@ -334,8 +336,8 @@
     q('#sre-code-continue').addEventListener('click', onBlockContinue);
     q('#sre-table-continue').addEventListener('click', onBlockContinue);
 
-    bindOverlaySlider('speedInput',   'speedLabel',   'wpm',              v => `${v} WPM`,                           v => parseInt(v, 10));
-    bindOverlaySlider('penaltyInput', 'penaltyLabel', 'charPenaltyFactor', v => `Penalty ${Math.round(v * 100)}%`,  v => parseFloat(v));
+    bindOverlayControl('speedInput',   'speedNum',   'wpm',           parseInt,   50,  800);
+    bindOverlayControl('penaltyInput', 'penaltyNum', 'charPenaltyMs', parseFloat,  0,  500);
 
     overlay.addEventListener('click', e => { if (e.target === overlay) closeReader(); });
     document.addEventListener('keydown', handleKeydown);
@@ -413,7 +415,6 @@
     refs.wordOrp.textContent    = token.orp;
     refs.wordAfter.textContent  = token.after;
     refs.wordDisplay.classList.toggle('sre-is-link', !!token.isLink);
-
     refs.ctxLeft.textContent  = token.ctx?.open  ?? '';
     refs.ctxRight.textContent = token.ctx?.close ?? '';
 
@@ -433,7 +434,6 @@
     const token = state.tokens[state.index++];
     renderToken(token);
     if (state.waitingForBlock) return;
-    // wordDuration reads cfg at call time so slider and key changes take effect immediately.
     state.timer = setTimeout(tick, token.type === 'word' ? wordDuration(token.text) : 0);
   }
 
@@ -503,7 +503,7 @@
     cfg.wpm = Math.min(800, Math.max(50, cfg.wpm + delta));
     saveSettings({ wpm: cfg.wpm });
     if (refs.speedInput) refs.speedInput.value = cfg.wpm;
-    if (refs.speedLabel) refs.speedLabel.textContent = `${cfg.wpm} WPM`;
+    if (refs.speedNum)   refs.speedNum.value   = cfg.wpm;
   }
 
   function handleKeydown(e) {
