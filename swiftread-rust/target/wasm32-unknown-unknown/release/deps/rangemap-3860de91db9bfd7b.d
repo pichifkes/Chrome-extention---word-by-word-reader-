@@ -1,0 +1,12 @@
+/home/roy/Documents/ChromeExtention/swiftread-rust/target/wasm32-unknown-unknown/release/deps/rangemap-3860de91db9bfd7b.d: /home/roy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rangemap-1.7.1/src/lib.rs /home/roy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rangemap-1.7.1/src/inclusive_map.rs /home/roy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rangemap-1.7.1/src/inclusive_set.rs /home/roy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rangemap-1.7.1/src/map.rs /home/roy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rangemap-1.7.1/src/operations.rs /home/roy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rangemap-1.7.1/src/set.rs /home/roy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rangemap-1.7.1/src/range_wrapper.rs /home/roy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rangemap-1.7.1/src/std_ext.rs
+
+/home/roy/Documents/ChromeExtention/swiftread-rust/target/wasm32-unknown-unknown/release/deps/librangemap-3860de91db9bfd7b.rmeta: /home/roy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rangemap-1.7.1/src/lib.rs /home/roy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rangemap-1.7.1/src/inclusive_map.rs /home/roy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rangemap-1.7.1/src/inclusive_set.rs /home/roy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rangemap-1.7.1/src/map.rs /home/roy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rangemap-1.7.1/src/operations.rs /home/roy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rangemap-1.7.1/src/set.rs /home/roy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rangemap-1.7.1/src/range_wrapper.rs /home/roy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rangemap-1.7.1/src/std_ext.rs
+
+/home/roy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rangemap-1.7.1/src/lib.rs:
+/home/roy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rangemap-1.7.1/src/inclusive_map.rs:
+/home/roy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rangemap-1.7.1/src/inclusive_set.rs:
+/home/roy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rangemap-1.7.1/src/map.rs:
+/home/roy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rangemap-1.7.1/src/operations.rs:
+/home/roy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rangemap-1.7.1/src/set.rs:
+/home/roy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rangemap-1.7.1/src/range_wrapper.rs:
+/home/roy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rangemap-1.7.1/src/std_ext.rs:

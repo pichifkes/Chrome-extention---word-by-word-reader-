@@ -14,6 +14,7 @@ pub fn extract_pdf_text(bytes: &[u8]) -> String {
 
 // Input: JS DOM walker produces flat segments, one per text node / code block / table.
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct Segment {
     #[serde(rename = "type")]
     seg_type: String,
@@ -25,19 +26,18 @@ struct Segment {
     html: Option<String>,
 }
 
-// Output: tokens returned to JS for display.
+// Output: tokens returned to JS for display. String fields are always serialized
+// (empty string instead of `undefined`) so the JS consumer can read them without
+// per-field guards.
 #[derive(Serialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
 struct Token {
     #[serde(rename = "type")]
     token_type: String,
     text: String,
-    #[serde(skip_serializing_if = "String::is_empty")]
     before: String,
-    #[serde(skip_serializing_if = "String::is_empty")]
     orp: String,
-    #[serde(skip_serializing_if = "String::is_empty")]
     after: String,
-    #[serde(skip_serializing_if = "is_false")]
     is_link: bool,
     ctx: Option<TokenCtx>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -48,10 +48,6 @@ struct Token {
 struct TokenCtx {
     open: String,
     close: String,
-}
-
-fn is_false(b: &bool) -> bool {
-    !b
 }
 
 // ================================================================
@@ -177,7 +173,8 @@ const CTX_PAIRS: &[(char, char)] = &[
 ];
 
 fn annotate_context(tokens: &mut Vec<Token>) {
-    let mut stack: Vec<(String, String)> = Vec::new();
+    // (open, close) chars — avoids per-push String allocation.
+    let mut stack: Vec<(char, char)> = Vec::new();
 
     for token in tokens.iter_mut() {
         if token.token_type == "word" {
@@ -187,26 +184,28 @@ fn annotate_context(tokens: &mut Vec<Token>) {
 
             for &ch in &chars[..lead_count] {
                 if let Some(&(_, close)) = CTX_PAIRS.iter().find(|&&(open, _)| open == ch) {
-                    stack.push((ch.to_string(), close.to_string()));
+                    stack.push((ch, close));
                 }
             }
 
-            token.ctx = stack
-                .last()
-                .map(|(o, c)| TokenCtx { open: o.clone(), close: c.clone() });
+            token.ctx = stack.last().map(|&(o, c)| TokenCtx {
+                open: o.to_string(),
+                close: c.to_string(),
+            });
 
             let trail_start = chars.len().saturating_sub(trail_count);
             for &ch in chars[trail_start..].iter().rev() {
-                if let Some(top) = stack.last() {
-                    if top.1.chars().next() == Some(ch) {
+                if let Some(&(_, close)) = stack.last() {
+                    if close == ch {
                         stack.pop();
                     }
                 }
             }
         } else {
-            token.ctx = stack
-                .last()
-                .map(|(o, c)| TokenCtx { open: o.clone(), close: c.clone() });
+            token.ctx = stack.last().map(|&(o, c)| TokenCtx {
+                open: o.to_string(),
+                close: c.to_string(),
+            });
         }
     }
 }
@@ -215,14 +214,12 @@ fn annotate_context(tokens: &mut Vec<Token>) {
 // PUBLIC API
 // ================================================================
 
-/// Convert a JSON array of DOM segments into a JSON array of display tokens.
-/// JS passes segments extracted from the DOM; Rust handles all token logic.
+/// Convert an array of DOM segments into an array of display tokens.
+/// Zero-copy via serde-wasm-bindgen: JS passes/receives plain JS objects.
 #[wasm_bindgen]
-pub fn build_tokens(segments_json: &str) -> String {
-    let segments: Vec<Segment> = match serde_json::from_str(segments_json) {
-        Ok(s) => s,
-        Err(_) => return "[]".to_string(),
-    };
+pub fn build_tokens(segments: JsValue) -> Result<JsValue, JsValue> {
+    let segments: Vec<Segment> = serde_wasm_bindgen::from_value(segments)
+        .map_err(|e| JsValue::from_str(&format!("invalid segments: {}", e)))?;
 
     let mut tokens: Vec<Token> = Vec::with_capacity(segments.len() * 4);
 
@@ -258,7 +255,8 @@ pub fn build_tokens(segments_json: &str) -> String {
 
     annotate_context(&mut tokens);
 
-    serde_json::to_string(&tokens).unwrap_or_else(|_| "[]".to_string())
+    serde_wasm_bindgen::to_value(&tokens)
+        .map_err(|e| JsValue::from_str(&format!("serialize failed: {}", e)))
 }
 
 /// Compute how long (ms) to display a word given the current speed settings.

@@ -10,15 +10,31 @@ const DEFAULTS = {
 
 function $(id) { return document.getElementById(id); }
 
+// Batched, debounced storage writes (shared across all bindings). Avoids
+// burning the chrome.storage.sync quota during a slider drag (~120/min limit).
+const pendingWrites = {};
+let writeTimer = null;
+function scheduleStorageWrite(partial) {
+  Object.assign(pendingWrites, partial);
+  clearTimeout(writeTimer);
+  writeTimer = setTimeout(() => {
+    const snapshot = { ...pendingWrites };
+    for (const k of Object.keys(pendingWrites)) delete pendingWrites[k];
+    chrome.storage.sync.set(snapshot);
+  }, 200);
+}
+
 // Bind a range slider + number input pair to a storage key.
 function bindSetting(sliderId, numId, storageKey, parse, min, max) {
   const slider = $(sliderId);
   const num    = $(numId);
   const apply  = (raw) => {
-    const v = Math.min(max, Math.max(min, parse(raw)));
+    const parsed = parse(raw);
+    if (!Number.isFinite(parsed)) return;
+    const v = Math.min(max, Math.max(min, parsed));
     slider.value = v;
     num.value    = v;
-    chrome.storage.sync.set({ [storageKey]: v });
+    scheduleStorageWrite({ [storageKey]: v });
   };
   slider.addEventListener('input',  () => apply(slider.value));
   num.addEventListener('change',    () => apply(num.value));
@@ -75,8 +91,9 @@ function bindSliderOnly(sliderId, valId, storageKey, format) {
   const label  = $(valId);
   slider.addEventListener('input', () => {
     const v = parseFloat(slider.value);
+    if (!Number.isFinite(v)) return;
     label.textContent = format(v);
-    chrome.storage.sync.set({ [storageKey]: v });
+    scheduleStorageWrite({ [storageKey]: v });
   });
   return (value) => { slider.value = value; label.textContent = format(value); };
 }

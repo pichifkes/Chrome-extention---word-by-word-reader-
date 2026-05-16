@@ -23,14 +23,51 @@
 
   function loadSettings() {
     return new Promise(resolve => {
-      chrome.storage.sync.get(DEFAULTS, data => { cfg = { ...DEFAULTS, ...data }; resolve(); });
+      chrome.storage.sync.get(DEFAULTS, data => {
+        for (const k of Object.keys(DEFAULTS)) cfg[k] = sanitizeSetting(k, data[k]);
+        resolve();
+      });
     });
   }
 
-  function saveSettings(partial) {
-    cfg = { ...cfg, ...partial };
-    chrome.storage.sync.set(cfg);
+  // Batched, debounced storage writes. Local cfg is updated immediately;
+  // this only handles persistence so a slider drag doesn't burn through the
+  // chrome.storage.sync quota (120 writes/min, 1800/hour).
+  const pendingWrites = {};
+  let storageTimer = null;
+  function scheduleStorageWrite(partial) {
+    Object.assign(pendingWrites, partial);
+    clearTimeout(storageTimer);
+    storageTimer = setTimeout(() => {
+      const snapshot = { ...pendingWrites };
+      for (const k of Object.keys(pendingWrites)) delete pendingWrites[k];
+      chrome.storage.sync.set(snapshot);
+    }, 200);
   }
+
+  function saveSettings(partial) {
+    for (const [k, v] of Object.entries(partial)) cfg[k] = sanitizeSetting(k, v);
+    scheduleStorageWrite(partial);
+  }
+
+  // Validates a stored value's shape before it lands in cfg. Stops a corrupted
+  // storage entry (or a font name with CSS-breakout characters) from being
+  // applied blindly.
+  function sanitizeSetting(key, value) {
+    if (value === undefined || value === null) return DEFAULTS[key];
+    if (key === 'font') return isAllowedFont(value) ? value : DEFAULTS.font;
+    if (typeof value !== 'number' || !Number.isFinite(value)) return DEFAULTS[key];
+    return value;
+  }
+
+  // Keep cfg in sync with external writes (popup, other tabs).
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== 'sync') return;
+    for (const [k, { newValue }] of Object.entries(changes)) {
+      if (k in DEFAULTS) cfg[k] = sanitizeSetting(k, newValue);
+    }
+    if ('font' in changes) applyFont(cfg.font);
+  });
 
   // ================================================================
   // WASM BACKEND
@@ -47,7 +84,7 @@
         const jsUrl   = chrome.runtime.getURL('pkg/swiftread_rs.js');
         const wasmUrl = chrome.runtime.getURL('pkg/swiftread_rs_bg.wasm');
         const mod = await import(jsUrl);
-        await mod.default(wasmUrl);
+        await mod.default({ module_or_path: wasmUrl });
         wasmFns = mod;
       } catch (e) {
         console.warn('SwiftRead: WASM init failed, using JS fallback —', e);
@@ -99,7 +136,7 @@
       .split(/\n{2,}/)
       .map(p => p.replace(/\s+/g, ' ').trim())
       .filter(p => p.length > 2)
-      .map(t => ({ type: 'text', text: t, is_link: false }));
+      .map(t => ({ type: 'text', text: t, isLink: false }));
   }
 
   // ================================================================
@@ -112,10 +149,43 @@
     'NAV', 'FOOTER', 'HEADER', 'ASIDE',
   ]);
 
+  // Strict allowlist for the only HTML we re-render (tables). Everything else
+  // is stripped — including <a>, <img>, <iframe>, inline styles, and any
+  // attribute outside this list. The table is re-injected into our overlay
+  // where the user reads it as our UI, so we don't pass through clickable
+  // junk from the page.
+  const TABLE_ALLOWED_TAGS = new Set([
+    'TABLE', 'CAPTION', 'COLGROUP', 'COL',
+    'THEAD', 'TBODY', 'TFOOT', 'TR', 'TH', 'TD',
+    'B', 'I', 'EM', 'STRONG', 'U', 'S', 'SUP', 'SUB',
+    'BR', 'SPAN', 'P', 'CODE', 'KBD', 'SAMP',
+    'OL', 'UL', 'LI',
+  ]);
+
+  function sanitizeTable(src) {
+    const out = document.createElement(src.tagName);
+    if (src.tagName === 'TD' || src.tagName === 'TH') {
+      for (const name of ['colspan', 'rowspan']) {
+        const v = src.getAttribute(name);
+        if (v == null) continue;
+        const n = parseInt(v, 10);
+        if (Number.isFinite(n) && n > 0 && n < 1000) out.setAttribute(name, String(n));
+      }
+    }
+    for (const child of src.childNodes) {
+      if (child.nodeType === Node.TEXT_NODE) {
+        out.appendChild(document.createTextNode(child.textContent));
+      } else if (child.nodeType === Node.ELEMENT_NODE && TABLE_ALLOWED_TAGS.has(child.tagName)) {
+        out.appendChild(sanitizeTable(child));
+      }
+    }
+    return out;
+  }
+
   function extractSegments(node, segments = [], inLink = false) {
     if (node.nodeType === Node.TEXT_NODE) {
       const text = node.textContent.replace(/\s+/g, ' ').trim();
-      if (text) segments.push({ type: 'text', text, is_link: inLink });
+      if (text) segments.push({ type: 'text', text, isLink: inLink });
       return segments;
     }
     if (node.nodeType !== Node.ELEMENT_NODE) return segments;
@@ -130,12 +200,7 @@
     }
 
     if (tag === 'TABLE') {
-      const clone = node.cloneNode(true);
-      clone.querySelectorAll('script, style').forEach(el => el.remove());
-      clone.querySelectorAll('*').forEach(el => {
-        [...el.attributes].forEach(a => { if (a.name.startsWith('on')) el.removeAttribute(a.name); });
-      });
-      segments.push({ type: 'table', html: clone.outerHTML });
+      segments.push({ type: 'table', html: sanitizeTable(node).outerHTML });
       return segments;
     }
 
@@ -143,7 +208,7 @@
       let n = parseInt(node.getAttribute('start') ?? '1', 10);
       for (const child of node.childNodes) {
         if (child.nodeType === Node.ELEMENT_NODE && child.tagName === 'LI')
-          segments.push({ type: 'text', text: `${n++}.`, is_link: inLink });
+          segments.push({ type: 'text', text: `${n++}.`, isLink: inLink });
         extractSegments(child, segments, inLink);
       }
       return segments;
@@ -157,17 +222,12 @@
   async function buildTokens(segments) {
     const fns = await initWasm();
     if (fns) {
-      const raw = JSON.parse(fns.build_tokens(JSON.stringify(segments)));
-      return raw.map(t => ({
-        type:   t.type,
-        text:   t.text   || '',
-        before: t.before || '',
-        orp:    t.orp    || '',
-        after:  t.after  || '',
-        isLink: t.is_link || false,
-        ctx:    t.ctx    || null,
-        html:   t.html   || null,
-      }));
+      try {
+        // Zero-copy via serde-wasm-bindgen — no JSON parse/stringify.
+        return fns.build_tokens(segments);
+      } catch (e) {
+        console.warn('SwiftRead: build_tokens failed, using JS fallback —', e);
+      }
     }
     return buildTokensJS(segments);
   }
@@ -195,6 +255,7 @@
       orp:    target[i] ?? target[0] ?? word[0],
       after:  target.slice(i + 1) + trail,
       isLink: isLink || false, ctx: null, html: null,
+      _lead: lead, _trail: trail,
     };
   }
 
@@ -203,7 +264,7 @@
     for (const seg of segments) {
       if (seg.type === 'text') {
         for (const w of seg.text.split(/\s+/).filter(Boolean))
-          tokens.push(makeWordTokenJS(w, seg.is_link));
+          tokens.push(makeWordTokenJS(w, seg.isLink));
       } else if (seg.type === 'code' && seg.text) {
         tokens.push({ type: 'code', text: seg.text, before: '', orp: '', after: '', isLink: false, ctx: null, html: null });
       } else if (seg.type === 'table' && seg.html) {
@@ -213,13 +274,14 @@
     const stack = [];
     for (const token of tokens) {
       if (token.type === 'word') {
-        const lead  = token.text.match(LEADING_PUNCT)?.[0]  ?? '';
-        const trail = token.text.match(TRAILING_PUNCT)?.[0] ?? '';
+        const lead  = token._lead  ?? '';
+        const trail = token._trail ?? '';
         for (const ch of lead) { if (CTX_OPEN[ch]) stack.push({ open: ch, close: CTX_OPEN[ch] }); }
         token.ctx = stack.length > 0 ? { ...stack[stack.length - 1] } : null;
         for (const ch of [...trail].reverse()) {
           if (stack.length && ch === stack[stack.length - 1].close) stack.pop();
         }
+        delete token._lead; delete token._trail;
       } else {
         token.ctx = stack.length > 0 ? { ...stack[stack.length - 1] } : null;
       }
@@ -254,7 +316,7 @@
     if (looksLikePdf()) {
       const text = sel.toString().trim();
       if (text.length < 2) return Promise.resolve([]);
-      return buildTokens([{ type: 'text', text, is_link: false }]);
+      return buildTokens([{ type: 'text', text, isLink: false }]);
     }
 
     const frag = sel.getRangeAt(0).cloneContents();
@@ -276,7 +338,10 @@
 
   function bindOverlayControl(sliderKey, numKey, cfgKey, parse, min, max) {
     const apply = (raw) => {
-      const v = Math.min(max, Math.max(min, parse(raw)));
+      const parsed = parse(raw);
+      const v = Number.isFinite(parsed)
+        ? Math.min(max, Math.max(min, parsed))
+        : cfg[cfgKey];
       cfg[cfgKey] = v;
       refs[sliderKey].value = v;
       refs[numKey].value    = v;
@@ -395,6 +460,11 @@
     'Verdana', 'Trebuchet MS', 'Tahoma', 'Impact', 'Comic Sans MS',
   ];
 
+  // Whitelist used by applyFont and sanitizeSetting. Replaced once
+  // populateFontSelector resolves the system font list.
+  let allowedFonts = new Set(COMMON_FONTS);
+  function isAllowedFont(f) { return typeof f === 'string' && allowedFonts.has(f); }
+
   async function populateFontSelector() {
     const select = overlay.querySelector('#sre-font-select');
     let fonts = COMMON_FONTS;
@@ -404,19 +474,33 @@
         fonts = ['system-ui', ...[...new Set(lf.map(f => f.family))].sort()];
       }
     } catch (_) {}
+
+    allowedFonts = new Set(fonts);
+    if (!isAllowedFont(cfg.font)) cfg.font = DEFAULTS.font;
+
+    const frag = document.createDocumentFragment();
     fonts.forEach(family => {
       const opt = document.createElement('option');
       opt.value = opt.textContent = family;
       opt.style.fontFamily = family;
       if (family === cfg.font) opt.selected = true;
-      select.appendChild(opt);
+      frag.appendChild(opt);
     });
+    select.appendChild(frag);
+
     applyFont(cfg.font);
-    select.addEventListener('change', e => { saveSettings({ font: e.target.value }); applyFont(e.target.value); });
+    select.addEventListener('change', e => {
+      const v = e.target.value;
+      if (!isAllowedFont(v)) return;
+      saveSettings({ font: v });
+      applyFont(v);
+    });
   }
 
   function applyFont(font) {
-    if (refs.wordDisplay) refs.wordDisplay.style.fontFamily = `"${font}", system-ui, sans-serif`;
+    if (!refs.wordDisplay) return;
+    const safe = isAllowedFont(font) ? font : DEFAULTS.font;
+    refs.wordDisplay.style.fontFamily = `"${safe}", system-ui, sans-serif`;
   }
 
   // ================================================================
@@ -465,6 +549,7 @@
 
     if (token.type === 'table') {
       showView('table');
+      // Already sanitized at extraction time (sanitizeTable allowlist).
       refs.tableContent.innerHTML = token.html;
       state.waitingForBlock = true;
       pauseReader();
@@ -472,9 +557,9 @@
     }
 
     showView('word');
-    refs.wordBefore.textContent = token.before;
-    refs.wordOrp.textContent    = token.orp;
-    refs.wordAfter.textContent  = token.after;
+    refs.wordBefore.textContent = token.before || '';
+    refs.wordOrp.textContent    = token.orp    || '';
+    refs.wordAfter.textContent  = token.after  || '';
     refs.wordDisplay.classList.toggle('sre-is-link', !!token.isLink);
     refs.ctxLeft.textContent  = token.ctx?.open  ?? '';
     refs.ctxRight.textContent = token.ctx?.close ?? '';
@@ -593,7 +678,7 @@
       selBtn.innerHTML = '<button>▶ Read</button>';
       selBtn.querySelector('button').addEventListener('click', async () => {
         hideSelectionButton();
-        await loadSettings();
+        await initialLoad;
         const tokens = await tokensFromSelection();
         if (tokens.length > 0) startReader(tokens);
       });
@@ -608,15 +693,21 @@
 
   if (looksLikePdf()) {
     // Inside a PDF plugin, mouseup doesn't propagate to document.
-    // selectionchange fires even for PDF selections via Chrome's selection bridge.
+    // selectionchange fires for PDF selections via Chrome's selection bridge —
+    // debounce because it fires on every cursor tick during a drag and
+    // sel.toString() allocates a copy of the selected text each call.
+    let selTimer = null;
     document.addEventListener('selectionchange', () => {
-      const sel = window.getSelection();
-      if (sel && !sel.isCollapsed && sel.toString().trim().length > 3) {
-        // Can't get a DOM rect for a PDF selection — anchor button to top-right.
-        showSelectionButton(window.innerWidth - 130, 16);
-      } else {
-        hideSelectionButton();
-      }
+      clearTimeout(selTimer);
+      selTimer = setTimeout(() => {
+        const sel = window.getSelection();
+        if (sel && !sel.isCollapsed && sel.toString().trim().length > 3) {
+          // Can't get a DOM rect for a PDF selection — anchor button to top-right.
+          showSelectionButton(window.innerWidth - 130, 16);
+        } else {
+          hideSelectionButton();
+        }
+      }, 80);
     });
   } else {
     document.addEventListener('mouseup', e => {
@@ -641,9 +732,9 @@
 
   chrome.runtime.onMessage.addListener((message) => {
     if (message.action === 'readSelection') {
-      loadSettings().then(() => tokensFromSelection()).then(t => { if (t.length) startReader(t); });
+      initialLoad.then(tokensFromSelection).then(t => { if (t.length) startReader(t); });
     } else if (message.action === 'readPage') {
-      loadSettings().then(async () => {
+      initialLoad.then(async () => {
         if (looksLikePdf()) {
           showLoading('Extracting PDF text…');
           try {
@@ -663,7 +754,7 @@
     }
   });
 
-  loadSettings();
+  const initialLoad = loadSettings();
   initWasm();
 
 })();
