@@ -82,47 +82,24 @@
            /\.pdf(\?|#|$)/i.test(window.location.href);
   }
 
-  let pdfjsLib = null;
-
-  async function loadPdfJs() {
-    if (pdfjsLib) return pdfjsLib;
-    const url = chrome.runtime.getURL('pdfjs/pdf.min.mjs');
-    const mod = await import(url);
-    mod.GlobalWorkerOptions.workerSrc = chrome.runtime.getURL('pdfjs/pdf.worker.min.mjs');
-    pdfjsLib = mod;
-    return pdfjsLib;
-  }
-
   async function extractPdfSegments(pdfUrl) {
-    const pdfjs  = await loadPdfJs();
-    const pdfDoc = await pdfjs.getDocument({ url: pdfUrl, verbosity: 0 }).promise;
-    const segments = [];
+    const fns = await initWasm();
+    if (!fns) throw new Error('WASM not available for PDF extraction');
 
-    for (let p = 1; p <= pdfDoc.numPages; p++) {
-      const page    = await pdfDoc.getPage(p);
-      const content = await page.getTextContent({ includeMarkedContent: false });
+    const response = await fetch(pdfUrl);
+    if (!response.ok) throw new Error(`PDF fetch failed: ${response.status}`);
 
-      // PDF.js returns individual glyph runs; stitch them into readable lines.
-      let line = '';
-      let lastY = null;
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    const text  = fns.extract_pdf_text(bytes);
+    if (!text) throw new Error('No extractable text in this PDF');
 
-      for (const item of content.items) {
-        if (!item.str) continue;
-        const y = item.transform?.[5] ?? null;
-        if (lastY !== null && Math.abs(y - lastY) > 2) {
-          // New line — flush current line as a segment
-          const trimmed = line.trim();
-          if (trimmed) segments.push({ type: 'text', text: trimmed, is_link: false });
-          line = item.str;
-        } else {
-          line += (line && !line.endsWith(' ') && !item.str.startsWith(' ') ? ' ' : '') + item.str;
-        }
-        lastY = y;
-      }
-      if (line.trim()) segments.push({ type: 'text', text: line.trim(), is_link: false });
-    }
-
-    return segments;
+    // Split on blank lines to get paragraph-level segments; Rust build_tokens
+    // handles word splitting and ORP from there.
+    return text
+      .split(/\n{2,}/)
+      .map(p => p.replace(/\s+/g, ' ').trim())
+      .filter(p => p.length > 2)
+      .map(t => ({ type: 'text', text: t, is_link: false }));
   }
 
   // ================================================================

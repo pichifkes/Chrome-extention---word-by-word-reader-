@@ -1,6 +1,13 @@
 use wasm_bindgen::prelude::*;
 use serde::{Deserialize, Serialize};
 
+/// Extract plain text from a PDF byte slice.
+/// Returns an empty string on failure; JS checks for that and shows an error.
+#[wasm_bindgen]
+pub fn extract_pdf_text(bytes: &[u8]) -> String {
+    pdf_extract::extract_text_from_mem(bytes).unwrap_or_default()
+}
+
 // ================================================================
 // TYPES
 // ================================================================
