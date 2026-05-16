@@ -249,6 +249,14 @@
   function tokensFromSelection() {
     const sel = window.getSelection();
     if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return Promise.resolve([]);
+
+    // PDF viewers don't expose selection in the normal DOM tree; use plain text.
+    if (looksLikePdf()) {
+      const text = sel.toString().trim();
+      if (text.length < 2) return Promise.resolve([]);
+      return buildTokens([{ type: 'text', text, is_link: false }]);
+    }
+
     const frag = sel.getRangeAt(0).cloneContents();
     const wrap = document.createElement('div'); wrap.appendChild(frag);
     return buildTokens(extractSegments(wrap));
@@ -598,20 +606,34 @@
 
   function hideSelectionButton() { if (selBtn) selBtn.style.display = 'none'; }
 
-  document.addEventListener('mouseup', e => {
-    if (e.target.closest('#sre-overlay') || e.target.closest('#sre-sel-btn')) return;
-    setTimeout(() => {
+  if (looksLikePdf()) {
+    // Inside a PDF plugin, mouseup doesn't propagate to document.
+    // selectionchange fires even for PDF selections via Chrome's selection bridge.
+    document.addEventListener('selectionchange', () => {
       const sel = window.getSelection();
       if (sel && !sel.isCollapsed && sel.toString().trim().length > 3) {
-        const rect = sel.getRangeAt(0).getBoundingClientRect();
-        showSelectionButton(rect.right, rect.bottom + 10);
-      } else { hideSelectionButton(); }
-    }, 10);
-  });
+        // Can't get a DOM rect for a PDF selection — anchor button to top-right.
+        showSelectionButton(window.innerWidth - 130, 16);
+      } else {
+        hideSelectionButton();
+      }
+    });
+  } else {
+    document.addEventListener('mouseup', e => {
+      if (e.target.closest('#sre-overlay') || e.target.closest('#sre-sel-btn')) return;
+      setTimeout(() => {
+        const sel = window.getSelection();
+        if (sel && !sel.isCollapsed && sel.toString().trim().length > 3) {
+          const rect = sel.getRangeAt(0).getBoundingClientRect();
+          showSelectionButton(rect.right, rect.bottom + 10);
+        } else { hideSelectionButton(); }
+      }, 10);
+    });
 
-  document.addEventListener('mousedown', e => {
-    if (!e.target.closest('#sre-sel-btn')) hideSelectionButton();
-  });
+    document.addEventListener('mousedown', e => {
+      if (!e.target.closest('#sre-sel-btn')) hideSelectionButton();
+    });
+  }
 
   // ================================================================
   // MESSAGE LISTENER
