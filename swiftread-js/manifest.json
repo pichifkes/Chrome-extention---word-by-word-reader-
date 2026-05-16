@@ -21,7 +21,12 @@
     "default_title": "SwiftRead Enhanced"
   },
   "web_accessible_resources": [{
-    "resources": ["pkg/swiftread_rs.js", "pkg/swiftread_rs_bg.wasm"],
+    "resources": [
+      "pkg/swiftread_rs.js",
+      "pkg/swiftread_rs_bg.wasm",
+      "pdfjs/pdf.min.mjs",
+      "pdfjs/pdf.worker.min.mjs"
+    ],
     "matches": ["<all_urls>"]
   }]
 }

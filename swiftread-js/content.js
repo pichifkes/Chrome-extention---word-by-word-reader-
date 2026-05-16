@@ -12,7 +12,7 @@
 
   const DEFAULTS = {
     wpm:              250,
-    charPenaltyMs:    25,   // ms added per alphanumeric char above 5
+    charPenaltyMs:    25,
     font:             'system-ui',
     hyphenMultiplier: 1.8,
     minDurationMs:    80,
@@ -65,13 +65,64 @@
         cfg.hyphenMultiplier, cfg.minDurationMs, cfg.maxDurationMs,
       );
     }
-    // JS fallback (identical logic to Rust)
     const base       = 60_000 / cfg.wpm;
     const chars      = word.replace(/[^a-zA-Z0-9]/g, '').length;
     const extraChars = Math.max(0, chars - 5);
     let   duration   = base + extraChars * cfg.charPenaltyMs;
     if (word.includes('-') && word.replace(/-/g, '').length > 3) duration *= cfg.hyphenMultiplier;
     return Math.min(Math.max(duration, cfg.minDurationMs), cfg.maxDurationMs);
+  }
+
+  // ================================================================
+  // PDF SUPPORT
+  // ================================================================
+
+  function looksLikePdf() {
+    return document.contentType === 'application/pdf' ||
+           /\.pdf(\?|#|$)/i.test(window.location.href);
+  }
+
+  let pdfjsLib = null;
+
+  async function loadPdfJs() {
+    if (pdfjsLib) return pdfjsLib;
+    const url = chrome.runtime.getURL('pdfjs/pdf.min.mjs');
+    const mod = await import(url);
+    mod.GlobalWorkerOptions.workerSrc = chrome.runtime.getURL('pdfjs/pdf.worker.min.mjs');
+    pdfjsLib = mod;
+    return pdfjsLib;
+  }
+
+  async function extractPdfSegments(pdfUrl) {
+    const pdfjs  = await loadPdfJs();
+    const pdfDoc = await pdfjs.getDocument({ url: pdfUrl, verbosity: 0 }).promise;
+    const segments = [];
+
+    for (let p = 1; p <= pdfDoc.numPages; p++) {
+      const page    = await pdfDoc.getPage(p);
+      const content = await page.getTextContent({ includeMarkedContent: false });
+
+      // PDF.js returns individual glyph runs; stitch them into readable lines.
+      let line = '';
+      let lastY = null;
+
+      for (const item of content.items) {
+        if (!item.str) continue;
+        const y = item.transform?.[5] ?? null;
+        if (lastY !== null && Math.abs(y - lastY) > 2) {
+          // New line — flush current line as a segment
+          const trimmed = line.trim();
+          if (trimmed) segments.push({ type: 'text', text: trimmed, is_link: false });
+          line = item.str;
+        } else {
+          line += (line && !line.endsWith(' ') && !item.str.startsWith(' ') ? ' ' : '') + item.str;
+        }
+        lastY = y;
+      }
+      if (line.trim()) segments.push({ type: 'text', text: line.trim(), is_link: false });
+    }
+
+    return segments;
   }
 
   // ================================================================
@@ -211,7 +262,13 @@
     return document.body;
   }
 
-  function tokensFromPage()      { return buildTokens(extractSegments(findMainContent())); }
+  function tokensFromPage() {
+    if (looksLikePdf()) {
+      return extractPdfSegments(window.location.href).then(buildTokens);
+    }
+    return buildTokens(extractSegments(findMainContent()));
+  }
+
   function tokensFromSelection() {
     const sel = window.getSelection();
     if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return Promise.resolve([]);
@@ -232,8 +289,6 @@
   // OVERLAY CREATION
   // ================================================================
 
-  // Bind a slider + number input pair to a cfg key. Both inputs stay in sync;
-  // clamp to [min, max] so out-of-range typed values are caught.
   function bindOverlayControl(sliderKey, numKey, cfgKey, parse, min, max) {
     const apply = (raw) => {
       const v = Math.min(max, Math.max(min, parse(raw)));
@@ -384,11 +439,32 @@
   // ================================================================
 
   function showView(name) {
-    // Use style.display directly — CSS `#sre-code-view { display:flex }` (specificity 1-0-0)
-    // overrides the UA `[hidden] { display:none }` (0-1-0).
     refs.wordView.style.display  = name === 'word'  ? ''     : 'none';
     refs.codeView.style.display  = name === 'code'  ? 'flex' : 'none';
     refs.tableView.style.display = name === 'table' ? 'flex' : 'none';
+  }
+
+  // Show a loading message in the word view while PDF is being extracted.
+  function showLoading(msg) {
+    createOverlay();
+    overlay.style.display = 'flex';
+    showView('word');
+    refs.wordBefore.textContent = '';
+    refs.wordOrp.textContent    = '';
+    refs.wordAfter.textContent  = '';
+    refs.ctxLeft.textContent    = '';
+    refs.ctxRight.textContent   = '';
+    refs.wordDisplay.style.fontSize = '18px';
+    refs.wordDisplay.textContent = msg;
+  }
+
+  function resetWordDisplay() {
+    refs.wordDisplay.style.fontSize = '';
+    refs.wordDisplay.textContent    = '';
+    refs.wordDisplay.innerHTML = '<span id="sre-word-before"></span><span id="sre-word-orp"></span><span id="sre-word-after"></span>';
+    refs.wordBefore = overlay.querySelector('#sre-word-before');
+    refs.wordOrp    = overlay.querySelector('#sre-word-orp');
+    refs.wordAfter  = overlay.querySelector('#sre-word-after');
   }
 
   function renderToken(token) {
@@ -448,6 +524,7 @@
     createOverlay();
     overlay.style.display = 'flex';
     showView('word');
+    resetWordDisplay();
 
     state.index = 1;
     renderToken(tokens[0]);
@@ -567,11 +644,26 @@
     if (message.action === 'readSelection') {
       loadSettings().then(() => tokensFromSelection()).then(t => { if (t.length) startReader(t); });
     } else if (message.action === 'readPage') {
-      loadSettings().then(() => tokensFromPage()).then(t => { if (t.length) startReader(t); });
+      loadSettings().then(async () => {
+        if (looksLikePdf()) {
+          showLoading('Extracting PDF text…');
+          try {
+            const t = await tokensFromPage();
+            if (t.length) startReader(t);
+            else { resetWordDisplay(); refs.wordDisplay.textContent = 'No text found in PDF.'; }
+          } catch (err) {
+            console.error('SwiftRead PDF error:', err);
+            resetWordDisplay();
+            refs.wordDisplay.textContent = 'Could not read this PDF.';
+          }
+        } else {
+          const t = await tokensFromPage();
+          if (t.length) startReader(t);
+        }
+      });
     }
   });
 
-  // Preload settings and WASM in parallel so both are ready when the user acts.
   loadSettings();
   initWasm();
 
