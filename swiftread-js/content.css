@@ -7,8 +7,7 @@
 
 /* ── Design tokens (scoped so they don't leak to the page) ──────── */
 #sre-overlay,
-#sre-sel-btn,
-#sre-pdf-sel-btn {
+#sre-sel-btn {
   /* Light mode */
   --sre-bg:           #F8F8F8;
   --sre-panel:        #FFFFFF;
@@ -459,36 +458,6 @@
   position: fixed;
   z-index: 2147483646;
   pointer-events: auto;
-}
-
-/* Permanent button shown on PDF pages — always visible in top-right corner
-   because PDF mouse events don't reach the document and selection isn't
-   accessible from the isolated content script world. */
-#sre-pdf-sel-btn {
-  position: fixed;
-  top: 16px;
-  right: 16px;
-  z-index: 2147483646;
-  pointer-events: auto;
-}
-
-#sre-pdf-sel-btn button {
-  background: var(--sre-accent);
-  color: #fff;
-  border: none;
-  border-radius: 20px;
-  padding: 7px 16px;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  box-shadow: 0 3px 10px rgba(0,0,0,0.22);
-  transition: background 0.15s, transform 0.1s;
-  white-space: nowrap;
-}
-
-#sre-pdf-sel-btn button:hover {
-  background: var(--sre-accent-hover);
-  transform: translateY(-1px);
 }
 
 #sre-sel-btn button {
