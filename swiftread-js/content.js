@@ -732,7 +732,18 @@
 
   chrome.runtime.onMessage.addListener((message) => {
     if (message.action === 'readSelection') {
-      initialLoad.then(tokensFromSelection).then(t => { if (t.length) startReader(t); });
+      // PDF viewers (Edge/Chrome PDFium) keep the selection out of the content
+      // script's reach, so window.getSelection() returns empty. The context
+      // menu handler in background.js passes the selected text through here
+      // so we can bypass the DOM selection API entirely when it's provided.
+      const provided = typeof message.selectionText === 'string' ? message.selectionText.trim() : '';
+      if (provided.length >= 2) {
+        initialLoad
+          .then(() => buildTokens([{ type: 'text', text: provided, isLink: false }]))
+          .then(t => { if (t.length) startReader(t); });
+      } else {
+        initialLoad.then(tokensFromSelection).then(t => { if (t.length) startReader(t); });
+      }
     } else if (message.action === 'readPage') {
       initialLoad.then(async () => {
         if (looksLikePdf()) {
